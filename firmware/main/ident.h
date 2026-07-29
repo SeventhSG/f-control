@@ -33,6 +33,9 @@ bool ident_set_name(ident_t *id, const char *name);
 /** Human readable fingerprint, e.g. "horse amber nine river". */
 void ident_words(const ident_t *id, char *out, size_t cap);
 
+/** The same rendering for somebody else's id, for the roster. */
+void ident_words_of(const uint8_t id[FCP_ID_LEN], char *out, size_t cap);
+
 /** Access point name derived from the identity, e.g. "f-control-a91b". */
 void ident_ap_name(const ident_t *id, char *out, size_t cap);
 

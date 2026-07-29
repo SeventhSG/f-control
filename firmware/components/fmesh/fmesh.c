@@ -175,6 +175,12 @@ static fmesh_action_t handle_beacon(fmesh_t *m, const fcp_hdr_t *h, const uint8_
         return FMESH_DROP;
     }
 
+    /* The name is cosmetic and arrives unauthenticated, so it is copied with a
+     * hard bound and terminated here rather than trusted to be either. */
+    const uint8_t nlen = b.name_len > FCP_NAME_MAX ? FCP_NAME_MAX : b.name_len;
+    memset(p->name, 0, sizeof(p->name));
+    if (nlen > 0u) memcpy(p->name, b.name, nlen);
+
     p->boot_id       = b.boot_id;
     p->seq           = b.seq;
     p->rssi          = rssi;

@@ -114,11 +114,17 @@ void web_send_roster(void) {
         char idhex[FCP_ID_LEN * 2 + 1];
         hex_id(peers[i].id, idhex);
 
+        char words[80];
+        ident_words_of(peers[i].id, words, sizeof words);
+
         cJSON *p = cJSON_CreateObject();
         cJSON_AddStringToObject(p, "id", idhex);
-        cJSON_AddStringToObject(p, "name", "");
+        cJSON_AddStringToObject(p, "name", peers[i].name);
+        /* Nothing is ever verified in this build, because there is no
+         * signature to check. The interface keeps the fingerprint redacted,
+         * which is the honest rendering of "unconfirmed". */
         cJSON_AddBoolToObject(p, "verified", false);
-        cJSON_AddStringToObject(p, "fp", "");
+        cJSON_AddStringToObject(p, "fp", words);
         cJSON_AddNumberToObject(p, "rssi", peers[i].rssi);
         cJSON_AddNumberToObject(p, "hops", peers[i].hops);
         cJSON_AddItemToArray(arr, p);

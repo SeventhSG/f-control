@@ -61,6 +61,7 @@ typedef enum {
 
 typedef struct {
     uint8_t  id[FCP_ID_LEN];
+    char     name[FCP_NAME_MAX + 1];   /* from the beacon, cosmetic, NUL terminated */
     uint16_t boot_id;
     uint32_t seq;
     int8_t   rssi;

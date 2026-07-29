@@ -86,17 +86,21 @@ bool ident_set_name(ident_t *id, const char *name) {
     return ok;
 }
 
-void ident_words(const ident_t *id, char *out, size_t cap) {
+void ident_words_of(const uint8_t id[FCP_ID_LEN], char *out, size_t cap) {
     if (cap == 0) return;
     out[0] = '\0';
 
     size_t used = 0;
     for (int i = 0; i < IDENT_WORDS; i++) {
-        const char *w = WORDS[id->id[i] & 0x3Fu];
+        const char *w = WORDS[id[i] & 0x3Fu];
         const int n = snprintf(out + used, cap - used, "%s%s", i ? " " : "", w);
         if (n < 0 || (size_t)n >= cap - used) return;
         used += (size_t)n;
     }
+}
+
+void ident_words(const ident_t *id, char *out, size_t cap) {
+    ident_words_of(id->id, out, cap);
 }
 
 void ident_ap_name(const ident_t *id, char *out, size_t cap) {

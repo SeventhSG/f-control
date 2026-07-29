@@ -26,16 +26,31 @@ You need one four dollar board. That is the whole requirement.
 > [!WARNING]
 > Nothing here has been audited. Do not rely on it for anything that matters. This README is the design document, published early and in the open, because a privacy tool that gets designed in private is a privacy tool nobody should trust.
 
-### What actually works today
+### v0.1.0-dev, what actually works today
+
+Binaries and flashing instructions: [`release/v0.1.0-dev/`](release/v0.1.0-dev/RELEASE.md)
 
 | | Status |
 |---|---|
-| Wire protocol codec | Written, 95,157 host assertions passing under AddressSanitizer |
-| Mesh relay, flood suppression | Written, tested to 100 simulated nodes |
-| ESP32 firmware, ESP-NOW radio, beacons | Runs on hardware |
-| Board's own access point and dashboard | Runs on hardware, 42 KB gzipped |
-| Desktop flasher | Detects boards, writes firmware |
-| **Encryption, identity, verification** | **Not implemented** |
+| Wire protocol codec | 95,157 host assertions passing under AddressSanitizer |
+| Mesh relay, flood suppression | Tested to 100 simulated nodes, worst case 3 transmissions per packet |
+| ESP32 firmware, ESP-NOW radio, beacons | Runs on hardware, verified on an ESP32-D0WD-V3 |
+| Board's own access point and dashboard | Runs on hardware, 42 KB gzipped, served from flash |
+| Roster with signal-derived distance | Works |
+| Short messages between boards | Works, **in the clear** |
+| Delivery confirmation | Not implemented, no acknowledgements yet |
+| Desktop flasher | Detects boards. **Does not write firmware yet**, use esptool |
+| **Encryption, signatures, verification** | **Not implemented** |
+
+Flash it with [esptool](https://github.com/espressif/esptool):
+
+```
+esptool.py --chip esp32 -p COM3 -b 460800 write_flash \
+  --flash_mode dio --flash_size 4MB --flash_freq 40m \
+  0x1000 bootloader.bin 0x8000 partition-table.bin 0x10000 f-control.bin
+```
+
+Then join the open network `f-control-XXXX` from a phone and open `http://192.168.4.1`. To watch both ends of a conversation you need two client devices, because each board runs its own access point and a phone can only join one at a time.
 
 ---
 
