@@ -1,0 +1,129 @@
+/* The only embedded face. Message text and names are the one place a serif
+   earns its bytes. Everything else uses whatever monospace the device has,
+   which costs nothing and is what keeps this file inside the flash budget. */
+@font-face{
+  font-family:'Bask';
+  src:url('fonts/baskerville.woff2') format('woff2');
+  font-weight:400;font-style:normal;font-display:block;
+}
+
+:root{
+  --ink:#0C0C0B; --panel:#131210; --line:#26241E; --soft:#1C1A16;
+  --bone:#E8E3D7; --dim:#7C776C; --faint:#4A463E;
+  --gold:#C9A227; --red:#C4241F;
+  --ser:'Bask',Georgia,serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,'Roboto Mono',monospace;
+  --pad:18px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:var(--ink);color:var(--bone);
+  font-family:var(--mono);font-size:13px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+::selection{background:var(--bone);color:var(--ink)}
+button,input{font:inherit;color:inherit;background:none;border:0;outline:0}
+:focus-visible{outline:1px solid var(--gold);outline-offset:2px}
+
+.wrap{width:100%;max-width:620px;margin:0 auto;flex:1;display:flex;flex-direction:column;min-height:0}
+
+/* ---------------- header ---------------- */
+.top{
+  display:flex;align-items:baseline;gap:12px;
+  padding:15px var(--pad) 12px;border-bottom:1px solid var(--line);flex:0 0 auto;
+}
+.mark{font-family:var(--ser);font-size:20px;line-height:1;letter-spacing:-.01em}
+.mark.peer{font-size:19px}
+.top .grow{flex:1}
+.stat{font-size:10px;color:var(--dim);letter-spacing:.06em;white-space:nowrap}
+.lnk{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);cursor:pointer}
+.lnk:hover{color:var(--bone)}
+.sub{
+  padding:7px var(--pad);font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--faint);border-bottom:1px solid var(--line);flex:0 0 auto;
+}
+
+/* ---------------- banners ---------------- */
+.banner{
+  padding:10px var(--pad);font-size:10.5px;line-height:1.6;color:var(--dim);
+  border-bottom:1px solid var(--line);border-left:2px solid var(--gold);flex:0 0 auto;
+}
+.banner.warn{border-left-color:var(--red)}
+.banner b{font-weight:400;color:var(--bone)}
+
+/* ---------------- scroll body ---------------- */
+.body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
+
+/* ---------------- roster ---------------- */
+/* Nearness is set in type. Size, indent and opacity are computed from RSSI in
+   app.js, not hard coded, so the list is a real gradient of presence. */
+.roster{padding:20px var(--pad) 10px}
+.ent{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:14px;
+     margin-bottom:18px;cursor:pointer}
+.ent:hover .nm{color:#fff}
+.nm{font-family:var(--ser);color:var(--bone);line-height:1.05;display:inline-block;
+    transition:color .12s}
+.nm.far{font-family:var(--mono);color:var(--faint);letter-spacing:.07em}
+.nm.vf{border-bottom:1px solid var(--gold);padding-bottom:3px}
+.fp{font-size:9px;letter-spacing:.12em;color:var(--dim);margin-top:7px}
+.blk{display:inline-block;background:var(--bone);height:9px;width:104px;vertical-align:-1px}
+.unv{color:var(--red);letter-spacing:.15em;margin-left:9px;font-size:8.5px}
+.rt{text-align:right;white-space:nowrap}
+.rt b{display:block;font-weight:400;font-size:12px;letter-spacing:.02em}
+.rt s{display:block;text-decoration:none;color:var(--faint);font-size:9px;margin-top:4px;
+      letter-spacing:.05em}
+
+.none{padding:44px var(--pad);text-align:center;color:var(--faint);font-size:11.5px;line-height:1.9}
+
+/* ---------------- thread ---------------- */
+.th{padding:18px var(--pad) 10px;display:flex;flex-direction:column;gap:15px}
+.msg{max-width:82%}
+.msg p{font-family:var(--ser);font-size:14.5px;line-height:1.6;word-wrap:break-word}
+.msg .mt{font-size:8.5px;letter-spacing:.13em;color:var(--faint);margin-top:6px}
+.msg.out{margin-left:auto;text-align:right}
+.msg.out p{color:#C4BFB3}
+.msg.lost p{color:var(--dim)}
+.msg.lost .mt{color:var(--red)}
+.msg.pending .mt{color:var(--dim)}
+
+.compose{
+  border-top:1px solid var(--line);padding:10px var(--pad);flex:0 0 auto;
+  display:flex;align-items:center;gap:12px;
+}
+.compose input{flex:1;font-size:13px;min-width:0}
+.compose input::placeholder{color:var(--faint)}
+.budget{font-size:9px;letter-spacing:.1em;color:var(--faint);white-space:nowrap}
+.budget.over{color:var(--red)}
+.send{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--bone);
+      border:1px solid var(--line);padding:7px 12px;cursor:pointer}
+.send:disabled{color:var(--faint);border-color:var(--soft);cursor:not-allowed}
+
+/* ---------------- unlock ---------------- */
+.gate{flex:1;display:flex;flex-direction:column;justify-content:center;
+      padding:0 var(--pad) 12vh;max-width:340px;margin:0 auto;width:100%}
+.gate .mark{font-size:38px;margin-bottom:26px}
+.field{border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding-bottom:9px}
+.field input{flex:1;font-size:15px;letter-spacing:.18em}
+.gate .go{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--bone);cursor:pointer}
+.gate .go:disabled{color:var(--faint);cursor:not-allowed}
+.gate .why{margin-top:18px;font-size:10.5px;line-height:1.75;color:var(--dim)}
+.gate .why.bad{color:var(--red)}
+
+/* ---------------- settings ---------------- */
+.set{padding:20px var(--pad) 30px}
+.grp{margin-bottom:30px}
+.grp h2{font-family:var(--ser);font-weight:400;font-size:19px;margin-bottom:6px}
+.grp p{font-size:11px;line-height:1.75;color:var(--dim);margin-bottom:13px}
+.rowline{display:flex;align-items:baseline;gap:14px;padding:9px 0;border-bottom:1px solid var(--soft)}
+.rowline:last-of-type{border-bottom:0}
+.rowline dt{flex:0 0 96px;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.rowline dd{font-size:12px;word-break:break-all}
+.words{font-family:var(--ser);font-size:19px;border-bottom:1px solid var(--gold);
+       padding-bottom:3px;display:inline-block}
+.act{font-size:9px;letter-spacing:.2em;text-transform:uppercase;border:1px solid var(--line);
+     padding:9px 14px;cursor:pointer;margin-right:8px;margin-top:4px}
+.act:hover{border-color:var(--dim)}
+.act.danger{color:var(--red);border-color:var(--red)}
