@@ -264,8 +264,25 @@ fn find_usb_info(port: &str) -> Result<serialport::UsbPortInfo, String> {
 /// prints to the terminal, and the flashing code below knows about neither.
 pub type OnProgress<'a> = &'a mut dyn FnMut(&'static str, u64, u64);
 
+/// A slower, closer-to-the-metal fallback speed. The initial handshake always
+/// happens at the ROM's own native 115200, and only afterward does the chip
+/// get asked to jump up to `FLASH_BAUD` for the actual transfer, which is
+/// exactly the step where a cheap or marginal USB-serial bridge is most
+/// likely to drop bytes under a fast burst. A board that answered the
+/// handshake but failed the write almost always succeeds once asked to stay
+/// slow, at the cost of the transfer taking roughly four times longer.
+const FLASH_BAUD_SAFE: u32 = 115_200;
+
 /// Writes the bundled firmware. This is the whole of it: no Tauri, no window,
 /// no async, so it can be driven from the interface or from a terminal.
+///
+/// Connects exactly once. Getting the chip into the ROM bootloader is the
+/// part that sometimes needs BOOT held by hand on boards with an unreliable
+/// auto-reset circuit, so once that has happened, this never closes the port
+/// and reconnects, which would throw that away and demand the button be held
+/// again for no reason. If the fast speed fails partway through the write,
+/// the same live connection just asks the chip to slow down and retries the
+/// write on the spot.
 pub fn flash_board(port: &str, on_progress: OnProgress) -> Result<Credentials, String> {
     let _guard = WRITING
         .lock()
@@ -294,13 +311,15 @@ pub fn flash_board(port: &str, on_progress: OnProgress) -> Result<Credentials, S
         115_200,
     );
 
-    let mut flasher = Flasher::connect(connection, true, true, false, None, Some(FLASH_BAUD))
-        .map_err(|e| {
-            format!(
-                "The board did not answer: {e}. Hold the BOOT button while plugging it in, \
-                 release it, then try again. A charge-only USB cable is the other common cause."
-            )
-        })?;
+    // Connect at the ROM's native speed, not FLASH_BAUD directly: a chip that
+    // is slow to enter the bootloader sometimes handshakes fine at 115200 and
+    // then fails a baud change requested before it has settled.
+    let mut flasher = Flasher::connect(connection, true, true, false, None, None).map_err(|e| {
+        format!(
+            "The board did not answer: {e}. Hold the BOOT button while plugging it in, \
+             release it, then try again. A charge-only USB cable is the other common cause."
+        )
+    })?;
 
     let chip = format!("{:?}", flasher.chip());
 
@@ -310,26 +329,55 @@ pub fn flash_board(port: &str, on_progress: OnProgress) -> Result<Credentials, S
         .and_then(|d| d.mac_address)
         .unwrap_or_else(|| "unknown".into());
 
-    on_progress("erase", 0, total);
+    if let Err(e) = flasher.change_baud(FLASH_BAUD) {
+        eprintln!("could not switch to {FLASH_BAUD} baud, staying at {FLASH_BAUD_SAFE}: {e}");
+    }
 
     let segments = [
         Segment::new(ADDR_BOOTLOADER, BOOTLOADER),
         Segment::new(ADDR_PARTITIONS, PARTITIONS),
         Segment::new(ADDR_APP, APP),
     ];
+    let sizes: Vec<u64> = segments.iter().map(|s| s.data.len() as u64).collect();
 
-    let mut reporter = Reporter {
-        on_progress,
-        sizes: segments.iter().map(|s| s.data.len() as u64).collect(),
-        segment: 0,
-        segment_chunks: 0,
-        written_before: 0,
-        total,
+    on_progress("erase", 0, total);
+
+    let first_attempt = {
+        let mut reporter = Reporter {
+            on_progress: &mut *on_progress,
+            sizes: sizes.clone(),
+            segment: 0,
+            segment_chunks: 0,
+            written_before: 0,
+            total,
+        };
+        flasher.write_bins_to_flash(&segments, &mut reporter)
     };
 
-    flasher
-        .write_bins_to_flash(&segments, &mut reporter)
-        .map_err(|e| format!("The write did not complete: {e}"))?;
+    if let Err(e) = first_attempt {
+        // The handshake worked, so BOOT was already held correctly; only the
+        // burst transfer choked. Slow down and try again on the exact same
+        // connection, no reset, no re-entering the bootloader.
+        flasher
+            .change_baud(FLASH_BAUD_SAFE)
+            .map_err(|e2| format!("The write did not complete: {e}\n\nAnd could not slow down to retry: {e2}"))?;
+
+        on_progress("erase", 0, total);
+        let mut reporter = Reporter {
+            on_progress,
+            sizes,
+            segment: 0,
+            segment_chunks: 0,
+            written_before: 0,
+            total,
+        };
+        flasher.write_bins_to_flash(&segments, &mut reporter).map_err(|e2| {
+            format!(
+                "The write did not complete at full speed: {e}\n\n\
+                 Retried at a slower, more reliable speed on the same connection, and that failed too: {e2}"
+            )
+        })?;
+    }
 
     on_progress("verify", total, total);
 

@@ -21,6 +21,7 @@ const S = {
   networks: null,        // null = never scanned, [] = scanned and found nothing
   scanning: false,
   picked: null,          // ssid selected in the network list
+  focusDraftNext: false, // refocus the compose field after this render only
 };
 
 const MAX_BYTES = 160;   // real FCP payload budget: 24 byte nonce for XChaCha20, see fcp.h
@@ -285,12 +286,19 @@ function render() {
 
   root.innerHTML = screens[S.screen]();
 
-  if (S.screen === 'gate') root.querySelector('#pass')?.focus();
   if (S.screen === 'thread') {
     const b = root.querySelector('.body');
     if (b && stick) b.scrollTop = b.scrollHeight;
-    const d = root.querySelector('#draft');
-    if (d) { d.focus(); d.setSelectionRange(d.value.length, d.value.length); }
+    /* Deliberately not auto-focused here. Focusing a text field opens the
+       keyboard on mobile immediately, which used to happen on every render,
+       including the very first time the thread opened, before anyone had a
+       chance to reach the Confirm button underneath it. Opening a chat should
+       not fight opening a keyboard the moment you look at someone's name. */
+    if (S.focusDraftNext) {
+      S.focusDraftNext = false;
+      const d = root.querySelector('#draft');
+      if (d) { d.focus(); d.setSelectionRange(d.value.length, d.value.length); }
+    }
   }
 }
 
@@ -363,6 +371,10 @@ function doSend() {
   if (!text || bytes(text) > MAX_BYTES) return;
   send({ t: 'send', peer: S.peer.id, text });
   S.draft = '';
+  /* The keyboard was already open, since typing is how a send happens, so
+     keeping focus here is a convenience for a fast follow-up message rather
+     than the surprise it is when it happens on first opening the thread. */
+  S.focusDraftNext = true;
   render();
 }
 
