@@ -14,9 +14,10 @@ static const char *NS = "fcontrol";
 /* Sixty four short, unambiguous words. Four of them carry 24 bits, which is
  * enough for two people to notice a mismatch when they read them aloud and far
  * too few to resist an attacker who is grinding for a collision. That is
- * acceptable here only because this build has no cryptography to protect in
- * the first place. When real keys land, this list grows and the fingerprint
- * covers a hash of the public key rather than the key itself. */
+ * acceptable only because this fingerprint identifies a display label, not a
+ * signing key: nothing here is signed, so there is no forgery to resist yet.
+ * When real identity keys land, this list grows and the fingerprint covers a
+ * hash of the public key rather than the raw random value it is today. */
 static const char *WORDS[64] = {
     "amber", "anchor", "apple", "arrow", "autumn", "basil", "beacon", "birch",
     "bison", "bramble", "brass", "cedar", "chalk", "cinder", "clay", "clover",
@@ -103,6 +104,35 @@ void ident_words(const ident_t *id, char *out, size_t cap) {
     ident_words_of(id->id, out, cap);
 }
 
+bool ident_set_ap_name(const char *name) {
+    if (name == NULL || strlen(name) > 24) return false;
+
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return false;
+
+    esp_err_t err;
+    if (name[0] == '\0') {
+        err = nvs_erase_key(h, "ap_name");
+        /* Nothing stored yet is the same outcome as clearing it. */
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    } else {
+        err = nvs_set_str(h, "ap_name", name);
+    }
+
+    const bool ok = (err == ESP_OK) && (nvs_commit(h) == ESP_OK);
+    nvs_close(h);
+    return ok;
+}
+
 void ident_ap_name(const ident_t *id, char *out, size_t cap) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t len = cap;
+        if (nvs_get_str(h, "ap_name", out, &len) == ESP_OK && out[0] != '\0') {
+            nvs_close(h);
+            return;
+        }
+        nvs_close(h);
+    }
     snprintf(out, cap, "f-control-%02x%02x", id->id[0], id->id[1]);
 }

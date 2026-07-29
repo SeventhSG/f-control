@@ -1,10 +1,11 @@
 /* Who this board is.
  *
  * In this build the identity is a random 32 byte value generated once and kept
- * in NVS. It is NOT a keypair, nothing is signed, and nothing is encrypted.
- * The shape matches what the real identity will be so the interface and the
- * wire format do not change when the crypto lands, but do not mistake it for
- * one: anybody can claim any identity in this build.
+ * in NVS. It is NOT a keypair and nothing is signed, so the fingerprint proves
+ * only that a beacon carries a stable, self-chosen label, not that it belongs
+ * to any particular person. Anybody can claim any identity in this build. This
+ * is separate from message confidentiality, which is handled by the shared
+ * network key in netkey.h and does not depend on this file at all.
  */
 #ifndef IDENT_H
 #define IDENT_H
@@ -29,6 +30,10 @@ void ident_load(ident_t *out);
 
 /** Persist a new display name. Returns false if it is too long. */
 bool ident_set_name(ident_t *id, const char *name);
+
+/** Overrides the auto-generated access point name. Empty string clears the
+ *  override and returns to the fingerprint-derived default. */
+bool ident_set_ap_name(const char *name);
 
 /** Human readable fingerprint, e.g. "horse amber nine river". */
 void ident_words(const ident_t *id, char *out, size_t cap);

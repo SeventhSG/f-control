@@ -1,12 +1,13 @@
 f-control  v0.1.0-dev
 =====================
 
-THIS BUILD HAS NO ENCRYPTION.
+ENCRYPTED WITH A SHARED NETWORK KEY. NOT PRIVATE, PER-PERSON ENCRYPTION.
 
-Messages travel in clear over the air. Anyone with a receiver can read
-them. Nothing is signed, so anyone can claim to be anyone. This is a
-hardware bring-up build. Do not use it to say anything you would not
-shout across a car park.
+Every board given the same network key can read every message on that
+network, and nobody without it can. That stops a stranger with a
+receiver. It does not say who sent a message, it does not stop one
+person on your network reading another's traffic, and nothing here is
+signed, so anyone holding the key can claim to be anyone.
 
 
 TO FLASH A BOARD
@@ -17,28 +18,59 @@ TO FLASH A BOARD
 
 2. Run  f-control-flasher.exe
 
-3. The board should appear within a second or two. Click WRITE FIRMWARE.
+3. The board should appear within a second or two.
 
-That is all. The firmware is inside the exe. Nothing is downloaded.
+4. Optionally set: your name, this board's wifi network name, a home
+   wifi network to join instead, and the network key. A network key
+   is filled in for you already. BOARDS THAT SHOULD TALK TO EACH
+   OTHER NEED THE SAME KEY -- it carries over automatically if you
+   flash more than one board without closing the app.
+
+5. Click WRITE FIRMWARE.
+
+The firmware is inside the exe. Nothing is downloaded. Everything you
+set in step 4 is sent to the board right after writing and applied
+before it restarts.
 
 
 TO USE IT
 ---------
 
-1. On a phone, open the wifi list and join the open network named
-   f-control- followed by four characters. There is no password.
+1. On a phone, open the wifi list and join the network you named (or
+   the automatic f-control- followed by four characters). There is
+   no wifi password; the network key protects the messages, not the
+   wifi join.
 
 2. Open  http://192.168.4.1  in the phone's browser.
 
-3. Other boards in range appear in the list within about ten seconds.
+3. Other boards in range appear in the list within about ten seconds,
+   if they were given the same network key.
 
-To send messages between two boards you need TWO phones or tablets, one
-joined to each board. Each board runs its own wifi network and a phone
-can only be on one network at a time.
+To send messages between two boards you need TWO phones or tablets,
+one joined to each board, unless both boards joined the same home
+wifi network.
+
+
+SETTINGS (on the dashboard, press SETTINGS)
+--------------------------------------------
+
+  Name         what other boards call you.
+  Encryption   shows your network key's fingerprint. Read it against
+               another board's to confirm they match without either
+               of you reading the key itself aloud.
+  Network      join your own wifi, or leave this board's own network
+               running. Find networks, pick, password, join.
+
+All of this can also be set once, at flash time, from the flasher.
+
+Joining your wifi moves the mesh onto that network's channel, because
+the board has one radio. Boards on the same network can still hear
+each other. Boards on different networks cannot. The settings screen
+tells you which channel you ended up on.
 
 
 IF THE BOARD DOES NOT APPEAR IN THE FLASHER
--------------------------------------------
+--------------------------------------------
 
 The USB serial driver is the usual cause. Check which chip your board
 uses and install the current driver:
@@ -52,8 +84,10 @@ device as working but flashing fails with "a device attached to the
 system is not functioning", the driver is too old. Uninstall it, tick
 "delete the driver software", unplug, install the current one, replug.
 
-If the board is found but will not accept the write, hold the BOOT
-button while plugging it in, release it, then try again.
+If the board is found but will not accept the write ("the board did
+not answer" during connect), hold the BOOT button while plugging it
+in, release it, then try again. Some boards' auto-reset circuit is
+unreliable enough that this is needed every single time.
 
 
 COMMAND LINE
@@ -63,9 +97,13 @@ COMMAND LINE
   f-control-flasher.exe --flash COM3
   f-control-flasher.exe --monitor COM3
 
+The command line --flash writes firmware only. The name/wifi/network
+key setup fields are a GUI feature for now; set them from the
+dashboard's Settings screen if you flashed from the command line.
+
 
 IF SOMETHING GOES WRONG, SEND THE SERIAL LOG
---------------------------------------------
+----------------------------------------------
 
 The board says what happened over USB, and that is the only place it
 says it. If it restarts, drops your wifi, or behaves oddly:
@@ -78,7 +116,7 @@ that block is worth more than any description of the symptom.
 
 
 IF YOU PREFER esptool
----------------------
+----------------------
 
 The raw images are in the firmware folder.
 
@@ -88,15 +126,19 @@ The raw images are in the firmware folder.
     0x8000 firmware/partition-table.bin ^
     0x10000 firmware/f-control.bin
 
+Then set name, wifi, and network key from the dashboard's Settings
+screen instead of the flasher.
+
 
 WHAT DOES NOT WORK YET
-----------------------
+------------------------
 
-- No encryption, no signatures, no verification.
+- Per-contact end to end encryption and signed identity. What exists
+  is one shared key per network, described above.
 - No delivery confirmation. A sent message stays at "sending" forever
   even when it arrived. Check the receiving board to confirm.
-- Access point mode only. It cannot join your home wifi.
-- Windows only for the flasher. Use esptool elsewhere.
+- Windows only for the flasher's setup fields. Use esptool plus the
+  dashboard elsewhere.
 
 Checksums for everything are in SHA256SUMS.
 Full notes are in RELEASE.md.

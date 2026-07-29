@@ -22,20 +22,22 @@ export async function firmwareInfo() {
 }
 
 /**
- * Write the firmware. Calls onProgress({ phase, done, total }) as it goes.
- * Phases are 'connect', 'erase', 'write', 'verify' in that order.
+ * Write the firmware, then hand the board its settings if `provision` is not
+ * null: { name, ap, ssid, pass, netkey }, every field optional. Calls
+ * onProgress({ phase, done, total }) as it goes. Phases are 'connect',
+ * 'erase', 'write', 'verify', and 'configure' when there is anything to send.
  * Resolves with the board's first boot credentials.
  */
-export async function writeFirmware(port, onProgress) {
+export async function writeFirmware(port, provision, onProgress) {
   if (inTauri) {
     const un = await window.__TAURI__.event.listen('flash-progress', e => onProgress(e.payload));
     try {
-      return await invoke('write_firmware', { port });
+      return await invoke('write_firmware', { port, provision });
     } finally {
       un();
     }
   }
-  return mock.writeFirmware(port, onProgress);
+  return mock.writeFirmware(port, provision, onProgress);
 }
 
 export function isMock() {
@@ -69,7 +71,7 @@ const mock = {
     };
   },
 
-  async writeFirmware(port, onProgress) {
+  async writeFirmware(port, provision, onProgress) {
     const total = 1_284_096;
     onProgress({ phase: 'connect', done: 0, total });
     await sleep(700);
@@ -82,6 +84,11 @@ const mock = {
     onProgress({ phase: 'write', done: total, total });
     onProgress({ phase: 'verify', done: total, total });
     await sleep(800);
+    if (provision) {
+      onProgress({ phase: 'configure', done: 0, total: 1 });
+      await sleep(500);
+      onProgress({ phase: 'configure', done: 1, total: 1 });
+    }
     return { chip: 'Esp32', mac: 'ec:e3:34:da:c3:a0' };
   },
 };

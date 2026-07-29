@@ -7,6 +7,12 @@ const stepEls = [...document.querySelectorAll('.step')];
 const esc = s => String(s).replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+const genKey = () => {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('').match(/.{1,4}/g).join('-');
+};
+
 const state = {
   screen: 'scanning',   // scanning | found | writing | done | error
   boards: [],
@@ -15,16 +21,22 @@ const state = {
   progress: { phase: 'connect', done: 0, total: 1 },
   credentials: null,
   error: null,
+  // Kept across boards on purpose: flashing several boards in one sitting
+  // should mean they share a network key with no extra step, which is the
+  // whole reason two boards can talk to each other at all.
+  config: { name: '', ap: '', ssid: '', pass: '', netkey: genKey() },
+  willConfigure: false,
 };
 
 const STEP_OF = { scanning: 0, found: 0, writing: 1, done: 2, error: 1 };
 
-const PHASES = [
+const PHASES_BASE = [
   ['connect', 'Handshake with the chip'],
   ['erase', 'Erase existing flash'],
   ['write', 'Write firmware'],
   ['verify', 'Verify what was written'],
 ];
+const PHASE_CONFIGURE = ['configure', 'Send your settings'];
 
 // ---------------------------------------------------------------------------
 // screens
@@ -44,6 +56,7 @@ const screens = {
   found: () => {
     const b = state.selected;
     const f = state.firmware;
+    const c = state.config;
     return `
       <h1>${esc(b.label)}</h1>
       <p class="lede">Found on ${esc(b.port)} through ${esc(b.adapter)}.${b.certain ? '' :
@@ -54,18 +67,37 @@ const screens = {
         ${fact('SHA-256', f.sha256, true)}
       </div>
       <p class="lede">Everyone gets the same image. Nothing personal is compiled into it. That checksum is verified before a byte reaches the board.</p>
+
+      <div class="label" style="margin-top:26px">Set up this board</div>
+      <div class="cfg">
+        <div class="r"><span class="k">Name</span>
+          <input id="cfg-name" placeholder="unnamed, shown to others" maxlength="20" value="${esc(c.name)}"></div>
+        <div class="r"><span class="k">Network name</span>
+          <input id="cfg-ap" placeholder="auto, f-control-xxxx" maxlength="24" value="${esc(c.ap)}"></div>
+        <div class="r"><span class="k">Home wifi</span>
+          <input id="cfg-ssid" placeholder="leave blank to skip" value="${esc(c.ssid)}"></div>
+        <div class="r"><span class="k">Wifi password</span>
+          <input id="cfg-pass" type="password" placeholder="leave blank if open" value="${esc(c.pass)}"></div>
+        <div class="r wide"><span class="k">Network key</span>
+          <input id="cfg-netkey" value="${esc(c.netkey)}">
+          <button class="genbtn" data-act="genkey">New</button>
+          <button class="copy" data-copy="${esc(c.netkey)}">copy</button></div>
+      </div>
+      <p class="lede">Every field above is optional and is sent to the board once, right after writing, so nothing needs to be typed into its dashboard by hand. Boards that should hear each other need the <b style="color:var(--bone)">same network key</b>: it carries over automatically if you flash more than one board in this session, or paste in one you used before.</p>
+
       <div class="notice warn"><b>Writing erases the board completely.</b> If it already runs f-control, its identity and verified contacts are destroyed, and only a backup you exported yourself can bring them back.</div>`;
   },
 
   writing: () => {
     const { phase, done, total } = state.progress;
-    const at = PHASES.findIndex(p => p[0] === phase);
+    const phases = activePhases();
+    const at = phases.findIndex(p => p[0] === phase);
     const pct = phase === 'write' ? (done / total) * 100 : (phase === 'connect' ? 0 : 100);
     return `
       <h1 class="sm">Writing</h1>
       <p class="lede">Leave the board plugged in until this finishes.</p>
       <div class="phases">
-        ${PHASES.map(([id, text], i) => `
+        ${phases.map(([id, text], i) => `
           <div class="phase ${i < at ? 'ok' : i === at ? 'on' : ''}">
             <span class="tick"></span>${esc(text)}
           </div>`).join('')}
@@ -78,22 +110,26 @@ const screens = {
   },
 
   done: () => {
-    const c = state.credentials;
+    const cr = state.credentials;
+    const cf = state.config;
+    const apLine = cf.ap
+      ? `Join <span style="color:var(--bone)">${esc(cf.ap)}</span>`
+      : `Join the network named <span style="color:var(--bone)">f-control-</span> followed by four characters`;
     return `
       <h1>Written</h1>
-      <p class="lede">The board is running f-control and has restarted.</p>
+      <p class="lede">The board is running f-control and has restarted${state.willConfigure ? ', with the settings from the last screen already applied' : ''}.</p>
       <div class="cred">
         <div class="row">
-          <div class="k">Chip</div><div class="v">${esc(c.chip)}</div>
+          <div class="k">Chip</div><div class="v">${esc(cr.chip)}</div>
         </div>
         <div class="row">
-          <button class="copy" data-copy="${esc(c.mac)}">copy</button>
-          <div class="k">MAC</div><div class="v">${esc(c.mac)}</div>
+          <button class="copy" data-copy="${esc(cr.mac)}">copy</button>
+          <div class="k">MAC</div><div class="v">${esc(cr.mac)}</div>
         </div>
       </div>
       <p class="lede">The board makes its own identity on first boot, from its own random number generator. <span style="color:var(--bone)">This program never sees it</span>, so it cannot show it to you and cannot keep a copy.</p>
-      <p class="lede">To find it: join the open network named <span style="color:var(--bone)">f-control-</span> followed by four characters, then open <span style="color:var(--bone)">192.168.4.1</span>. The fingerprint is on the settings screen.</p>
-      <div class="notice warn"><b>This build has no encryption.</b> Messages travel in clear over the air and anyone with a receiver can read them. Nothing is signed, so anyone can claim any name. It is a bring-up build, not something to trust.</div>`;
+      <p class="lede">${apLine} from a phone, then open <span style="color:var(--bone)">192.168.4.1</span>. The fingerprint and network key are both on the Settings screen there.</p>
+      <div class="notice warn"><b>This is a shared network key, not private per-person encryption.</b> Anyone holding the same key, including everyone else on this network, can read every message and claim to be anyone. It stops a stranger with a receiver, nothing more.</div>`;
   },
 
   error: () => `
@@ -132,7 +168,7 @@ const hint = (t, err = false) => `<span class="hint ${err ? 'err' : ''}">${esc(t
 // makes it stutter instead of advance. Mutate the two nodes that change.
 function updateProgress() {
   const { phase, done, total } = state.progress;
-  const at = PHASES.findIndex(p => p[0] === phase);
+  const at = activePhases().findIndex(p => p[0] === phase);
   const fill = view.querySelector('.track i');
   if (!fill) return render();
 
@@ -187,12 +223,18 @@ async function scan() {
   scanTimer = setTimeout(scan, 900);
 }
 
+const activePhases = () => state.willConfigure ? [...PHASES_BASE, PHASE_CONFIGURE] : PHASES_BASE;
+
 async function doWrite() {
+  const c = state.config;
+  const provision = Object.values(c).some(v => v.trim()) ? { ...c } : null;
+  state.willConfigure = !!provision;
+
   state.screen = 'writing';
   state.progress = { phase: 'connect', done: 0, total: 1 };
   render();
   try {
-    state.credentials = await writeFirmware(state.selected.port, p => {
+    state.credentials = await writeFirmware(state.selected.port, provision, p => {
       state.progress = p;
       if (state.screen === 'writing') updateProgress();
     });
@@ -215,7 +257,11 @@ function reset() {
   Object.assign(state, {
     screen: 'scanning', boards: [], selected: null,
     progress: { phase: 'connect', done: 0, total: 1 }, credentials: null, error: null,
+    willConfigure: false,
   });
+  // The network key carries over on purpose, see the note where it is
+  // defined. Everything specific to one person or one board does not.
+  state.config = { ...state.config, name: '', ap: '', ssid: '', pass: '' };
   render();
   scan();
 }
@@ -227,12 +273,26 @@ actions.addEventListener('click', e => {
 });
 
 view.addEventListener('click', async e => {
+  if (e.target.closest('[data-act="genkey"]')) {
+    state.config.netkey = genKey();
+    render();
+    return;
+  }
+
   const el = e.target.closest('[data-copy]');
   if (!el) return;
   await navigator.clipboard.writeText(el.dataset.copy);
   el.textContent = 'copied';
   el.classList.add('ok');
   setTimeout(() => { el.textContent = 'copy'; el.classList.remove('ok'); }, 1400);
+});
+
+// Mirrors typed values into state without re-rendering, so the input the
+// person is actively typing into never loses focus or cursor position.
+view.addEventListener('input', e => {
+  const field = { 'cfg-name': 'name', 'cfg-ap': 'ap', 'cfg-ssid': 'ssid',
+                  'cfg-pass': 'pass', 'cfg-netkey': 'netkey' }[e.target.id];
+  if (field) state.config[field] = e.target.value;
 });
 
 // Development only: ?dev=writing|done|error renders a screen without hardware.
@@ -244,6 +304,7 @@ if (isMock() && devScreen) {
     firmware: await firmwareInfo(),
     progress: { phase: 'write', done: 712_000, total: 1_284_096 },
     credentials: { chip: 'Esp32', mac: 'ec:e3:34:da:c3:a0' },
+    willConfigure: true,
     error: {
       title: 'The board stopped responding',
       detail: 'Timed out waiting for the chip to acknowledge a block at offset 0x21000.',

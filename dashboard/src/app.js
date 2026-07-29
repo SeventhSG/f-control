@@ -18,9 +18,12 @@ const S = {
   down: false,
   noboard: false,
   unread: new Set(),
+  networks: null,        // null = never scanned, [] = scanned and found nothing
+  scanning: false,
+  picked: null,          // ssid selected in the network list
 };
 
-const MAX_BYTES = 180;   // real FCP payload budget, see the spec
+const MAX_BYTES = 160;   // real FCP payload budget: 24 byte nonce for XChaCha20, see fcp.h
 const DENSE = 50;        // above this the mesh is past its tested density
 
 // ---------------------------------------------------------------------------
@@ -138,32 +141,68 @@ const screens = {
 
       <div class="grp">
         <h2>You</h2>
-        <p>These three words are your identity. Read them aloud to someone standing next to you and they can be certain it is really you they are talking to.</p>
+        <p>Your name is what other boards show in their list. It is cosmetic and anybody can claim any name, so it identifies you the way a nickname does, not the way a passport does.</p>
+        <div class="field" style="margin-bottom:14px">
+          <input id="name" maxlength="20" placeholder="unnamed" autocomplete="off"
+                 spellcheck="false" value="${esc(S.me?.name === 'unnamed' ? '' : S.me?.name)}">
+          <button class="go" id="savename">Save</button>
+        </div>
         <dl>
-          <div class="rowline"><dt>Name</dt><dd>${esc(S.me?.name)}</dd></div>
           <div class="rowline"><dt>Fingerprint</dt><dd><span class="words">${esc(S.me?.fp)}</span></dd></div>
-          <div class="rowline"><dt>Contacts</dt><dd>${S.me?.contacts} of ${S.me?.max}</dd></div>
         </dl>
-        <button class="act" data-act="backup">Export backup</button>
+      </div>
+
+      <div class="grp">
+        <h2>Encryption</h2>
+        <p>Every board given the same network key can read each other's messages, and nobody else can. This is a shared secret among everyone on the network, not a private channel between two people: it does not say who sent a message, only that someone holding the key did.</p>
+        <dl>
+          <div class="rowline"><dt>Key</dt><dd><span class="words">${esc(S.me?.netkeyFp)}</span></dd></div>
+        </dl>
+        <p style="margin-top:10px">Read this fingerprint aloud against another board's. If they differ, the two boards were given different network keys and cannot read each other. The key itself is set when the board is flashed.</p>
       </div>
 
       <div class="grp">
         <h2>Network</h2>
         <p>${esc(netExplainer())}</p>
         <dl>
-          <div class="rowline"><dt>Mode</dt><dd>${S.net?.mode === 'station' ? 'Home network' : 'Own access point'}</dd></div>
-          ${S.net?.mode === 'station'
-            ? `<div class="rowline"><dt>Joined</dt><dd>${esc(S.net.ssid)}, channel ${S.net.channel}</dd></div>` : ''}
-          <div class="rowline"><dt>Mesh</dt><dd>channel ${S.net?.meshChannel ?? 1}</dd></div>
+          <div class="rowline"><dt>Mode</dt><dd>${S.net?.mode === 'station'
+            ? (S.net?.joined ? 'On your network' : 'Trying to join') : "This board's own"}</dd></div>
+          ${S.net?.mode === 'station' ? `
+          <div class="rowline"><dt>Network</dt><dd>${esc(S.net.ssid)}</dd></div>
+          <div class="rowline"><dt>Address</dt><dd>${esc(S.net.ip || 'waiting')}</dd></div>` : ''}
+          <div class="rowline"><dt>Channel</dt><dd>${S.net?.channel ?? '?'}</dd></div>
         </dl>
-        <button class="act" data-act="net">Change network</button>
+
+        ${S.net?.beta ? `<div class="banner warn" style="border-bottom:0;padding-left:14px;margin:12px 0">
+          <b>The mesh moved to channel ${S.net.channel}.</b> This board has one radio, so joining a network on channel ${S.net.channel} took the mesh there too. It can only hear boards that are also on channel ${S.net.channel}, which in practice means boards on this same network.</div>` : ''}
+
+        ${S.net?.mode === 'station'
+          ? `<button class="act" data-act="leave">Leave this network</button>`
+          : ''}
+        <button class="act" data-act="scan" ${S.scanning ? 'disabled' : ''}>${
+          S.scanning ? 'Scanning' : 'Find networks'}</button>
+
+        ${S.networks === null ? '' : S.networks.length === 0
+          ? `<p style="margin-top:14px">Nothing found. Try again closer to the router.</p>`
+          : `<div class="ports" style="margin-top:14px">${S.networks.map(n => `
+              <div class="port ${S.picked === n.ssid ? 'sel' : ''}" data-ssid="${esc(n.ssid)}">
+                <span class="nm">${esc(n.ssid)}</span>
+                <span class="meta">${n.secure ? 'locked' : 'open'} &nbsp; ${n.rssi} dBm</span>
+              </div>`).join('')}</div>`}
+
+        ${S.picked ? `
+          <div class="field" style="margin-top:14px">
+            <input id="wifipass" type="password" placeholder="password for ${esc(S.picked)}"
+                   autocomplete="off" spellcheck="false">
+            <button class="go" id="joinwifi">Join</button>
+          </div>
+          <p style="margin-top:10px">Leave it empty if the network is open. The board keeps these and rejoins on its own after a restart.</p>` : ''}
       </div>
 
       <div class="grp">
         <h2>Erase</h2>
-        <p>Messages already live in memory only and vanish when the board loses power. This clears them now, along with every session key.</p>
+        <p>Messages already live in memory only and vanish when the board loses power. This clears them now.</p>
         <button class="act danger" data-act="wipe">Wipe now</button>
-        <button class="act" data-act="lock">Lock the board</button>
       </div>
 
     </div></div>`,
@@ -207,11 +246,13 @@ function msgHtml(m) {
 function banners() {
   const out = [];
 
-  /* First, always, and not dismissible. A person who flashed this after
-     reading the README could reasonably believe their messages are protected.
-     They are not, and the interface says so before anything else. */
-  if (S.me?.nocrypto) out.push(`<div class="banner warn">
-    <b>This build has no encryption.</b> Messages travel in clear over the air and anyone with a receiver can read them. Names are not signed, so anyone can claim to be anyone. Treat every conversation here as public.</div>`);
+  /* First, always, and not dismissible. A shared network key is real
+     protection against a passive listener without it, and it is just as
+     really NOT private between two people: everyone holding that key reads
+     everything and nothing here is signed. Both halves need to reach the
+     screen, or somebody reads only the reassuring half. */
+  if (S.me?.crypto === 'netkey') out.push(`<div class="banner warn">
+    <b>Messages are sealed with this board's network key,</b> fingerprint ${esc(S.me.netkeyFp)}. Anyone who was given the same key, including everyone else on this network, can read every message and claim to be anyone. This is not private, per-person encryption.</div>`);
   if (S.down) out.push(`<div class="banner warn"><b>The board stopped answering.</b> Reconnecting.</div>`);
   if (S.net?.beta) out.push(`<div class="banner">
     <b>Home network mode, beta.</b> Your network runs on channel ${S.net.channel} and the mesh meets on channel ${S.net.meshChannel}, so this board can only listen to the mesh in short windows. Discovery and delivery are slower, and it will not relay for anyone else. Set your router to channel ${S.net.meshChannel}, or use the board's own access point.</div>`);
@@ -228,8 +269,8 @@ const netLine = () => !S.net ? 'starting'
     : `own access point · mesh channel ${S.net.meshChannel}`;
 
 const netExplainer = () => S.net?.mode === 'station'
-  ? 'This board is on a network you already had. That is convenient, and it costs range and speed on the mesh, because one radio cannot sit on two channels at once.'
-  : 'This board runs its own access point on the mesh channel. This is the fastest and most reliable way to use it.';
+  ? 'This board is on a network you already had, so the dashboard is reachable from anywhere on it. Boards sharing a network share a channel, so the mesh between them works normally.'
+  : 'This board runs its own network. Nothing else is involved, which is the simplest and most reliable way to use it, and it means the dashboard is only reachable by joining this board directly.';
 
 // ---------------------------------------------------------------------------
 // render
@@ -277,11 +318,23 @@ root.addEventListener('click', e => {
   if (e.target.id === 'send') return doSend();
 
   const act = e.target.closest('[data-act]')?.dataset.act;
-  if (act === 'wipe' && confirm('Clear every message and session key on this board now?')) send({ t: 'wipe' });
-  if (act === 'lock') send({ t: 'lock' });
+  if (act === 'wipe' && confirm('Clear every message on this board now?')) send({ t: 'wipe' });
   if (act === 'reload') location.reload();
-  if (act === 'backup') alert('Backup export arrives with the firmware that has a key to export.');
-  if (act === 'net') alert('Network setup arrives with the firmware.');
+  if (act === 'scan') { S.scanning = true; S.picked = null; send({ t: 'scan' }); render(); }
+  if (act === 'leave') { S.networks = null; S.picked = null; send({ t: 'leave' }); }
+
+  const ssid = e.target.closest('[data-ssid]')?.dataset.ssid;
+  if (ssid) { S.picked = ssid; render(); }
+
+  if (e.target.id === 'savename') {
+    const el = root.querySelector('#name');
+    if (el) send({ t: 'setname', name: el.value.trim() });
+  }
+  if (e.target.id === 'joinwifi') {
+    const pw = root.querySelector('#wifipass');
+    send({ t: 'join', ssid: S.picked, password: pw ? pw.value : '' });
+    S.picked = null; S.networks = null; render();
+  }
 });
 
 root.addEventListener('input', e => {
@@ -354,6 +407,10 @@ on(f => {
       break;
     }
     case 'wiped': S.messages = []; break;
+    case 'networks':
+      S.networks = f.list ?? [];
+      S.scanning = false;
+      break;
     case 'down': S.down = true; break;
   }
   render();

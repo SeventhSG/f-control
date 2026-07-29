@@ -102,7 +102,7 @@ function mockHandle(frame) {
           beta: true, meshChannel: 1,
         });
         reply({ t: 'me', name: 'ozan', fp: 'copper still four', contacts: 3, max: 64,
-                nocrypto: true });
+                crypto: 'netkey', netkeyFp: 'a91bf03c' });
       } else {
         reply({ t: 'state', locked: true, attemptsLeft: 2, bad: true });
       }

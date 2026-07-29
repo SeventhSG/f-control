@@ -6,4 +6,6 @@ firmware/build/
 firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/main/index.html.gz
+firmware/main/wifi_default.h
 flasher/src-tauri/firmware/
+vc140.pdb

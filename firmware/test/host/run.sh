@@ -14,6 +14,7 @@ mkdir -p "$out"
 suites=(
   "fcp|${root}/components/fcp/include|${root}/components/fcp/fcp.c,${root}/components/fcp/test/test_fcp.c"
   "fmesh|${root}/components/fcp/include,${root}/components/fmesh/include|${root}/components/fcp/fcp.c,${root}/components/fmesh/fmesh.c,${root}/components/fmesh/test/test_fmesh.c"
+  "fcrypto|${root}/components/fcrypto/include,${root}/components/fcrypto/vendor|${root}/components/fcrypto/fcrypto.c,${root}/components/fcrypto/vendor/monocypher.c,${root}/components/fcrypto/test/test_fcrypto.c"
 )
 
 run_suite() {

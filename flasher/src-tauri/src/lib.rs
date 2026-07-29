@@ -87,6 +87,30 @@ struct Progress {
     total: u64,
 }
 
+/// Everything the flasher can hand the board over serial right after writing
+/// it, so the person never has to open the dashboard and type this in by
+/// hand. Every field is optional; an empty one is left alone by the board.
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvisionRequest {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub ap: String,
+    #[serde(default)]
+    pub ssid: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub netkey: String,
+}
+
+impl ProvisionRequest {
+    fn is_empty(&self) -> bool {
+        self.name.is_empty() && self.ap.is_empty() && self.ssid.is_empty() && self.netkey.is_empty()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // enumeration
 // ---------------------------------------------------------------------------
@@ -323,16 +347,91 @@ pub fn flash_board(port: &str, on_progress: OnProgress) -> Result<Credentials, S
     })
 }
 
+/// Sends the person's choices to a board that was just flashed and is now
+/// booting for the first time, over the same serial port espflash just used.
+/// See provision.c in the firmware for the exact line protocol: one line in,
+/// "FCPROV-OK" or "FCPROV-ERR ..." back, then the board restarts on its own.
+fn provision_board(port: &str, req: &ProvisionRequest) -> Result<(), String> {
+    use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
+
+    // The hard reset from flashing has just fired. Give the board time to
+    // boot and bring its console up before anything is sent at it.
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let mut serial = serialport::new(port, 115_200)
+        .timeout(Duration::from_millis(300))
+        .open_native()
+        .map_err(|e| format!("Could not reopen {port} to configure the board: {e}"))?;
+
+    let line = serde_json::json!({
+        "name": req.name, "ap": req.ap, "ssid": req.ssid,
+        "pass": req.password, "netkey": req.netkey,
+    });
+    serial
+        .write_all(format!("FCPROV {line}\n").as_bytes())
+        .map_err(|e| format!("Could not send the configuration: {e}"))?;
+
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 512];
+    let deadline = Instant::now() + Duration::from_secs(6);
+
+    while Instant::now() < deadline {
+        match serial.read(&mut chunk) {
+            Ok(0) => {}
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf);
+                if text.contains("FCPROV-OK") {
+                    return Ok(());
+                }
+                if let Some(pos) = text.find("FCPROV-ERR") {
+                    let line = text[pos..].lines().next().unwrap_or("").to_string();
+                    return Err(format!("The board rejected the configuration: {line}"));
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(e) => return Err(format!("{port} stopped responding while configuring it: {e}")),
+        }
+    }
+
+    Err("The board was flashed, but did not confirm the configuration in time. \
+         Open its dashboard and set these by hand instead."
+        .to_string())
+}
+
 #[tauri::command]
-async fn write_firmware(app: AppHandle, port: String) -> Result<Credentials, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+async fn write_firmware(
+    app: AppHandle,
+    port: String,
+    provision: Option<ProvisionRequest>,
+) -> Result<Credentials, String> {
+    let flash_port = port.clone();
+    let progress_app = app.clone();
+
+    let creds = tauri::async_runtime::spawn_blocking(move || {
         let mut sink = |phase: &'static str, done: u64, total: u64| {
-            let _ = app.emit("flash-progress", Progress { phase, done, total });
+            let _ = progress_app.emit("flash-progress", Progress { phase, done, total });
         };
-        flash_board(&port, &mut sink)
+        flash_board(&flash_port, &mut sink)
     })
     .await
-    .map_err(|e| format!("The write task failed to run: {e}"))?
+    .map_err(|e| format!("The write task failed to run: {e}"))??;
+
+    if let Some(req) = provision {
+        if !req.is_empty() {
+            app.emit("flash-progress", Progress { phase: "configure", done: 0, total: 1 })
+                .ok();
+            let prov_port = port.clone();
+            tauri::async_runtime::spawn_blocking(move || provision_board(&prov_port, &req))
+                .await
+                .map_err(|e| format!("The configuration task failed to run: {e}"))??;
+            app.emit("flash-progress", Progress { phase: "configure", done: 1, total: 1 })
+                .ok();
+        }
+    }
+
+    Ok(creds)
 }
 
 /// Prints whatever the board says, forever, until interrupted.

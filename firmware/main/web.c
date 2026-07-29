@@ -33,6 +33,8 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "net.h"
+#include "netkey.h"
+#include "wifi.h"
 
 static const char *TAG = "web";
 
@@ -52,7 +54,8 @@ typedef struct {
     bool     used;
 } msg_t;
 
-typedef enum { EV_HELLO, EV_ROSTER, EV_MSG, EV_THREAD, EV_WIPED } ev_kind_t;
+typedef enum { EV_HELLO, EV_ROSTER, EV_MSG, EV_THREAD, EV_WIPED,
+               EV_ME, EV_NET, EV_SCAN } ev_kind_t;
 
 typedef struct {
     ev_kind_t kind;
@@ -157,26 +160,59 @@ static void send_state(int fd) {
 static void send_me(int fd) {
     cJSON *o = cJSON_CreateObject();
     char words[80];
+    char keyfp[16];
     ident_words(s_id, words, sizeof words);
+    netkey_fingerprint(keyfp, sizeof keyfp);
 
     cJSON_AddStringToObject(o, "t", "me");
     cJSON_AddStringToObject(o, "name", s_id->name[0] ? s_id->name : "unnamed");
     cJSON_AddStringToObject(o, "fp", words);
     cJSON_AddNumberToObject(o, "contacts", 0);
     cJSON_AddNumberToObject(o, "max", FMESH_PEER_SLOTS);
-    /* The interface renders a standing warning off this flag. It is not
-     * decoration: without it somebody could read the README, flash this, and
-     * believe their messages are protected. */
-    cJSON_AddBoolToObject(o, "nocrypto", true);
+    /* The interface renders a standing banner off this. It is not decoration:
+     * a shared network key is real confidentiality against a passive
+     * listener, and it is also not private, per-contact encryption, since
+     * anyone holding the same key reads everything and nothing here is
+     * signed. Both halves of that need to reach the screen, so the dashboard
+     * gets the real crypto model rather than a boolean. */
+    cJSON_AddStringToObject(o, "crypto", "netkey");
+    cJSON_AddStringToObject(o, "netkeyFp", keyfp);
     ws_send(o, fd);
 }
 
 static void send_net(int fd) {
+    wifi_status_t st;
+    wifi_status(&st);
+
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "t", "net");
-    cJSON_AddStringToObject(o, "mode", "ap");
-    cJSON_AddNumberToObject(o, "meshChannel", NET_CHANNEL);
-    cJSON_AddBoolToObject(o, "beta", false);
+    cJSON_AddStringToObject(o, "mode", st.configured ? "station" : "ap");
+    cJSON_AddStringToObject(o, "ssid", st.ssid);
+    cJSON_AddStringToObject(o, "ip", st.ip);
+    cJSON_AddBoolToObject(o, "joined", st.joined);
+    cJSON_AddNumberToObject(o, "channel", st.channel);
+    /* The mesh meets wherever the radio actually is, not where we wish it
+     * were. Reporting the intended channel while sitting on another one is how
+     * a silent failure gets built. */
+    cJSON_AddNumberToObject(o, "meshChannel", st.channel ? st.channel : NET_CHANNEL);
+    cJSON_AddBoolToObject(o, "beta", st.configured && st.channel != NET_CHANNEL);
+    ws_send(o, fd);
+}
+
+static void send_networks(int fd) {
+    wifi_found_t found[WIFI_SCAN_MAX];
+    const size_t n = wifi_scan(found, WIFI_SCAN_MAX);
+
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "t", "networks");
+    cJSON *arr = cJSON_AddArrayToObject(o, "list");
+    for (size_t i = 0; i < n; i++) {
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddStringToObject(e, "ssid", found[i].ssid);
+        cJSON_AddNumberToObject(e, "rssi", found[i].rssi);
+        cJSON_AddBoolToObject(e, "secure", found[i].secure);
+        cJSON_AddItemToArray(arr, e);
+    }
     ws_send(o, fd);
 }
 
@@ -274,6 +310,9 @@ static void web_task(void *arg) {
                 break;
 
             case EV_ROSTER: send_roster(-1); break;
+            case EV_ME:     send_me(-1);     break;
+            case EV_NET:    send_net(-1);    break;
+            case EV_SCAN:   send_networks(ev.fd); break;
             case EV_MSG:    send_one_msg(ev.peer, ev.msg_id); break;
             case EV_THREAD: send_thread(ev.peer, ev.fd); break;
 
@@ -373,6 +412,32 @@ static void handle_frame(const char *json, int fd) {
             post(&ev);
         }
 
+    } else if (strcmp(t->valuestring, "setname") == 0) {
+        const cJSON *n = cJSON_GetObjectItem(root, "name");
+        if (cJSON_IsString(n) && ident_set_name(s_id, n->valuestring)) {
+            ESP_LOGI(TAG, "name is now \"%s\"", s_id->name);
+            ev_t ev = { .kind = EV_ME, .fd = -1 };
+            post(&ev);
+        }
+
+    } else if (strcmp(t->valuestring, "scan") == 0) {
+        ev_t ev = { .kind = EV_SCAN, .fd = fd };
+        post(&ev);
+
+    } else if (strcmp(t->valuestring, "join") == 0) {
+        const cJSON *ss = cJSON_GetObjectItem(root, "ssid");
+        const cJSON *pw = cJSON_GetObjectItem(root, "password");
+        if (cJSON_IsString(ss)) {
+            wifi_join(ss->valuestring, cJSON_IsString(pw) ? pw->valuestring : "");
+            ev_t ev = { .kind = EV_NET, .fd = -1 };
+            post(&ev);
+        }
+
+    } else if (strcmp(t->valuestring, "leave") == 0) {
+        wifi_leave();
+        ev_t ev = { .kind = EV_NET, .fd = -1 };
+        post(&ev);
+
     } else if (strcmp(t->valuestring, "wipe") == 0) {
         memset(s_msgs, 0, sizeof s_msgs);
         s_msg_next = 0;
@@ -433,33 +498,15 @@ static void on_close(httpd_handle_t hd, int sockfd) {
     close(sockfd);
 }
 
-/* ---- access point ------------------------------------------------------ */
-
-static void ap_start(void) {
-    char ssid[32];
-    ident_ap_name(s_id, ssid, sizeof ssid);
-
-    wifi_config_t cfg = { 0 };
-    strncpy((char *)cfg.ap.ssid, ssid, sizeof cfg.ap.ssid - 1);
-    cfg.ap.ssid_len = strlen(ssid);
-    cfg.ap.channel = NET_CHANNEL;
-    cfg.ap.max_connection = 4;
-    cfg.ap.authmode = WIFI_AUTH_OPEN;   /* see the note in web.h */
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_set_channel(NET_CHANNEL, WIFI_SECOND_CHAN_NONE));
-
-    ESP_LOGI(TAG, "access point \"%s\" up on channel %u", ssid, NET_CHANNEL);
-}
 
 void web_start(ident_t *id) {
     s_id = id;
     s_client_lock = xSemaphoreCreateMutex();
     s_events = xQueueCreate(12, sizeof(ev_t));
 
-    ap_start();
+    char ssid[32];
+    ident_ap_name(s_id, ssid, sizeof ssid);
+    wifi_start(ssid, NET_CHANNEL);
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_open_sockets = MAX_CLIENTS + 2;

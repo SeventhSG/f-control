@@ -9,6 +9,8 @@
 
 #include "ident.h"
 #include "net.h"
+#include "netkey.h"
+#include "provision.h"
 #include "web.h"
 
 static const char *TAG = "f-control";
@@ -18,20 +20,23 @@ static ident_t s_id;
 static void banner(void) {
     char words[80];
     char ssid[32];
+    char keyfp[16];
     ident_words(&s_id, words, sizeof words);
     ident_ap_name(&s_id, ssid, sizeof ssid);
+    netkey_fingerprint(keyfp, sizeof keyfp);
 
     printf("\n");
     printf("f-control  v0.1.0-dev\n");
     printf("fingerprint   %s\n", words);
+    printf("network key   %s\n", keyfp);
     printf("access point  %s, open, channel %u\n", ssid, NET_CHANNEL);
     printf("dashboard     http://192.168.4.1\n");
     printf("\n");
-    printf("  THIS BUILD HAS NO ENCRYPTION.\n");
-    printf("  Messages travel in clear over the air and anyone with a\n");
-    printf("  receiver can read them. Identities are not signed, so anyone\n");
-    printf("  can claim to be anyone. This is a hardware bring-up build,\n");
-    printf("  not something to trust with anything that matters.\n");
+    printf("  Messages are sealed with this board's network key, and only\n");
+    printf("  boards that were given the same key can read them. Nothing\n");
+    printf("  here proves who sent a message: names are not signed, so\n");
+    printf("  anyone with the key can claim to be anyone. This is not the\n");
+    printf("  same as private, per-person end to end encryption.\n");
     printf("\n");
 }
 
@@ -57,6 +62,7 @@ void app_main(void) {
      * the same radio and inherits its channel. */
     web_start(&s_id);
     net_start(&s_id, web_on_message, web_send_roster);
+    provision_start(&s_id);
 
     banner();
     ESP_LOGI(TAG, "running");

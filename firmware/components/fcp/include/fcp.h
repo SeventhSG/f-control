@@ -37,13 +37,15 @@ extern "C" {
 #define FCP_PUB_LEN            32u
 
 #define FCP_BEACON_PAYLOAD_LEN 155u
-#define FCP_NONCE_LEN          12u
-#define FCP_TAG_LEN            16u
 
-/* 250 total, minus a 22 byte addressed header, minus nonce, minus tag, leaves
- * 200. We cap plaintext at 180 and keep 20 in reserve so the format can grow
- * without a version bump. */
-#define FCP_PLAINTEXT_MAX      180u
+/* v0.1 uses XChaCha20-Poly1305 for the shared network key, which needs a
+ * 24 byte nonce rather than the 12 the original AES-GCM plan assumed. 250
+ * total, minus a 22 byte addressed header, minus nonce, minus tag, leaves
+ * 188. Capped at 160 with 28 in reserve so the format can still grow without
+ * a version bump. */
+#define FCP_NONCE_LEN          24u
+#define FCP_TAG_LEN            16u
+#define FCP_PLAINTEXT_MAX      160u
 
 /* A packet arriving with more hops than this is malformed or malicious. */
 #define FCP_HOP_LIMIT_MAX      8u

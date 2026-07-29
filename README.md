@@ -21,7 +21,7 @@ f-control removes the assumption. There is no provider. There is no server. Ther
 You need one four dollar board. That is the whole requirement.
 
 > [!CAUTION]
-> **`v0.1.0-dev` has no encryption at all.** Firmware now exists and runs on real hardware, but it is a bring-up build: messages travel in clear over the air, anyone with a receiver can read them, nothing is signed, and anyone can claim to be anyone. The board says this on boot and the dashboard says it on every screen. Everything below this line describes where the project is going. **Nothing below is true of `v0.1.0-dev` unless this warning says it is.**
+> **`v0.1.0-dev` encrypts with one shared key per network, not the per-contact design described below.** Every board given the same network key can read every message on that network; nobody without it can. That is real protection against a stranger with a receiver. It is not private, per-person encryption: it does not say who sent a message, it does not stop one person on your network reading another's traffic, and nothing is signed, so anyone holding the key can claim to be anyone. The board says this on boot and the dashboard says it on every screen. Everything below this line describes where the project is going, including per-contact end to end encryption with signed identity. **Nothing below is true of `v0.1.0-dev` unless this warning says it is.**
 
 > [!WARNING]
 > Nothing here has been audited. Do not rely on it for anything that matters. This README is the design document, published early and in the open, because a privacy tool that gets designed in private is a privacy tool nobody should trust.
@@ -32,17 +32,19 @@ Binaries and flashing instructions: [`release/v0.1.0-dev/`](release/v0.1.0-dev/R
 
 | | Status |
 |---|---|
-| Wire protocol codec | 95,157 host assertions passing under AddressSanitizer |
+| Wire protocol codec | 93,057 host assertions passing under AddressSanitizer |
 | Mesh relay, flood suppression | Tested to 100 simulated nodes, worst case 3 transmissions per packet |
+| Shared-key message encryption | XChaCha20-Poly1305, 15 host assertions, vendored Monocypher, see below |
 | ESP32 firmware, ESP-NOW radio, beacons | Runs on hardware, verified on an ESP32-D0WD-V3 |
-| Board's own access point and dashboard | Runs on hardware, 42 KB gzipped, served from flash |
+| Board's own access point and dashboard | Runs on hardware, 44 KB gzipped, served from flash |
 | Roster with signal-derived distance | Works |
-| Short messages between boards | Works, **in the clear** |
+| Messages between boards | Works, sealed under the network key |
 | Delivery confirmation | Not implemented, no acknowledgements yet |
 | Desktop flasher | Writes firmware, verified against a real board. Windows only so far |
-| **Encryption, signatures, verification** | **Not implemented** |
+| Flasher-time setup | Sets name, wifi network, and network key at flash time, over serial |
+| **Per-contact end to end encryption, signed identity** | **Not implemented** |
 
-Download [`f-control-v0.1.0-dev-windows.zip`](release/v0.1.0-dev/), extract it anywhere, run `f-control-flasher.exe`, plug in a board, click **Write firmware**. No installer, no dependencies, nothing to configure. The firmware is compiled into the app, so nothing is downloaded and nothing sits on disk between the build and your board. It also runs headless with `--list` and `--flash COM3`.
+Download [`f-control-v0.1.0-dev-windows.zip`](release/v0.1.0-dev/), extract it anywhere, run `f-control-flasher.exe`, plug in a board. Before writing, you can set the board's name, its wifi network name, a home network to join, and the network key that boards need in common to talk to each other; every field is optional and a network key is generated for you. Click **Write firmware** and it is all sent to the board right after, over the same USB connection. No installer, no dependencies. The firmware is compiled into the app, so nothing is downloaded and nothing sits on disk between the build and your board. It also runs headless with `--list`, `--flash COM3`, and `--monitor COM3`.
 
 On macOS and Linux, use [esptool](https://github.com/espressif/esptool):
 
@@ -153,10 +155,14 @@ flowchart TD
 |---|---|---|
 | Key exchange | X25519 | Fast on ESP32, no exotic dependencies |
 | Signing | Ed25519 | Proves a message came from the key you verified |
-| Content | AES-256-GCM | Hardware accelerated on ESP32 |
+| Content | XChaCha20-Poly1305 | Fast in software, so ESP32's hardware AES buys nothing on frames this small |
 | Identity | Public key fingerprint, three words | Readable aloud by a human in a room |
 | Trust | Verified in person, once | No directory, no authority, no server to lie to you |
 | Framing | Hop count and message ID on every packet | Mesh from day one, not bolted on later |
+
+### What `v0.1.0-dev` actually ships instead
+
+The table above is the target: a per-contact key exchange, so encryption is between two verified people rather than shared by a group. `v0.1.0-dev` ships a smaller thing on the way there: **one XChaCha20-Poly1305 key, shared by every board on a network**, set as a passphrase when you flash. It uses the same cipher the target design settled on, vendored as [Monocypher](firmware/components/fcrypto/vendor/VENDOR.md), and it was chosen over rushing the real handshake, because a key exchange with signed identities built quickly is exactly how a privacy tool gets someone hurt. It is real protection against anyone outside the network, and it is not a substitute for the row above: nothing in it proves who sent a message, and anyone inside the network reads everything inside it.
 
 ### Verification, and the block that hides the words
 

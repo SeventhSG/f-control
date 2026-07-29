@@ -12,6 +12,9 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include "fcrypto.h"
+#include "netkey.h"
+
 static const char *TAG = "net";
 
 static const uint8_t BROADCAST[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
@@ -22,6 +25,7 @@ static SemaphoreHandle_t s_lock;
 static QueueHandle_t   s_rx_q;
 static net_msg_cb_t    s_on_msg;
 static net_roster_cb_t s_on_roster;
+static uint8_t         s_netkey[FCRYPTO_KEY_LEN];
 
 typedef struct {
     uint8_t frame[FCP_MAX_FRAME];
@@ -63,15 +67,30 @@ static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int le
 }
 
 static void deliver(const fcp_hdr_t *h, const uint8_t *payload, size_t payload_len) {
-    /* Frame shape is identical to the encrypted one so nothing downstream has
-     * to change when crypto lands: a 12 byte nonce, the body, a 16 byte tag.
-     * In this build the body is plaintext and the tag is zero. */
+    /* Wire shape: nonce, ciphertext, tag. Sealed under the shared network key,
+     * see fcrypto.h for exactly what that promises and what it does not: it
+     * stops a passive listener without the key, and nothing else. A failed
+     * unseal here almost always means a different network key, not an attack,
+     * since anyone can generate a syntactically valid frame; either way the
+     * text is unrecoverable and the message is dropped rather than shown as
+     * garbage. */
     if (payload_len <= FCP_NONCE_LEN + FCP_TAG_LEN) return;
 
-    const char *text = (const char *)(payload + FCP_NONCE_LEN);
-    const size_t text_len = payload_len - FCP_NONCE_LEN - FCP_TAG_LEN;
+    const uint8_t *nonce  = payload;
+    const uint8_t *cipher = payload + FCP_NONCE_LEN;
+    const size_t   clen   = payload_len - FCP_NONCE_LEN - FCP_TAG_LEN;
+    const uint8_t *tag    = payload + FCP_NONCE_LEN + clen;
 
-    if (s_on_msg) s_on_msg(h->src_id, text, text_len);
+    uint8_t plain[FCP_PLAINTEXT_MAX];
+    if (!fcrypto_decrypt(s_netkey, nonce, cipher, clen, tag, plain)) {
+        ESP_LOGW(TAG, "could not open a message from %02x%02x%02x%02x%02x%02x, "
+                      "likely a different network key",
+                 h->src_id[0], h->src_id[1], h->src_id[2],
+                 h->src_id[3], h->src_id[4], h->src_id[5]);
+        return;
+    }
+
+    if (s_on_msg) s_on_msg(h->src_id, (const char *)plain, clen);
 }
 
 static void rx_task(void *arg) {
@@ -217,9 +236,17 @@ uint32_t net_send_text(const uint8_t dst_id[FCP_ID_LEN], const char *text, size_
     memcpy(h.dst_id, dst_id, FCP_ID_LEN);
 
     uint8_t payload[FCP_NONCE_LEN + NET_TEXT_MAX + FCP_TAG_LEN];
-    esp_fill_random(payload, FCP_NONCE_LEN);
-    memcpy(payload + FCP_NONCE_LEN, text, len);
-    memset(payload + FCP_NONCE_LEN + len, 0, FCP_TAG_LEN);   /* no tag, no crypto */
+    uint8_t *nonce  = payload;
+    uint8_t *cipher = payload + FCP_NONCE_LEN;
+    uint8_t *tag    = payload + FCP_NONCE_LEN + len;
+
+    /* A fresh random nonce every message is the one rule XChaCha20 needs
+     * followed without exception: reuse a nonce under the same key and the
+     * keystream repeats, which breaks confidentiality for both messages that
+     * shared it. 24 random bytes make a collision astronomically unlikely
+     * long before this key would be retired by any other means. */
+    esp_fill_random(nonce, FCP_NONCE_LEN);
+    fcrypto_encrypt(s_netkey, nonce, (const uint8_t *)text, len, cipher, tag);
 
     uint8_t frame[FCP_MAX_FRAME];
     size_t flen = 0;
@@ -246,6 +273,7 @@ void net_start(ident_t *id, net_msg_cb_t on_msg, net_roster_cb_t on_roster) {
     s_lock = xSemaphoreCreateMutex();
     s_rx_q = xQueueCreate(12, sizeof(rx_item_t));
 
+    netkey_load(s_netkey);
     fmesh_init(&s_mesh, id->id, rng, NULL);
 
     ESP_ERROR_CHECK(esp_now_init());
@@ -253,7 +281,10 @@ void net_start(ident_t *id, net_msg_cb_t on_msg, net_roster_cb_t on_roster) {
 
     esp_now_peer_info_t peer = { 0 };
     memcpy(peer.peer_addr, BROADCAST, 6);
-    peer.channel = NET_CHANNEL;
+    /* 0 means "whatever channel the radio is on". Pinning it to 1 would
+     * silently stop ESP-NOW working the moment the board joins a network
+     * that runs on a different channel. */
+    peer.channel = 0;
     peer.ifidx = WIFI_IF_AP;
     peer.encrypt = false;
     ESP_ERROR_CHECK(esp_now_add_peer(&peer));

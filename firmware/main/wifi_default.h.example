@@ -1,0 +1,20 @@
+/* Optional network baked into the build.
+ *
+ * Copy this file to wifi_default.h and fill it in to have a board join a
+ * network on first boot with nothing typed into the dashboard. Useful when the
+ * scan cannot see the router, or for a board you are about to leave somewhere.
+ *
+ * wifi_default.h is gitignored on purpose. A wifi password committed to a
+ * public repository is a wifi password you have given away, and rotating it
+ * afterwards means touching every device in the house.
+ *
+ * Anything stored through the dashboard wins over these, so a board flashed
+ * with a default here can still be moved to another network later.
+ */
+#ifndef WIFI_DEFAULT_H
+#define WIFI_DEFAULT_H
+
+#define FC_DEFAULT_SSID ""
+#define FC_DEFAULT_PASS ""
+
+#endif /* WIFI_DEFAULT_H */
