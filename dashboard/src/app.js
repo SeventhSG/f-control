@@ -122,7 +122,7 @@ const screens = {
         ? `verified in person &nbsp; ${esc(p.fp)}`
         : `<span style="color:var(--red)">not verified</span> &nbsp; read the words aloud together, then confirm`}</div>
       ${p.verified ? '' : `<div class="banner warn">
-        <b>You have not confirmed who this is.</b> Anyone can claim a name. Meet them, read the three words to each other, then press confirm.
+        <b>You have not confirmed who this is.</b> Anyone can claim a name. Meet them, read the three words to each other, then press confirm. This also sends them your network key over the open radio, so you end up able to read each other without typing anything in Settings. It is not a secure exchange, it is exactly as safe as reading the key aloud yourselves, just faster.
         <span class="lnk" data-verify="1" style="color:var(--gold);margin-left:6px">Confirm</span></div>`}
       <div class="body"><div class="th" id="th">
         ${S.messages.map(msgHtml).join('') || `<div class="none">Nothing yet. Messages live in the board's memory and are gone when it loses power.</div>`}
@@ -286,6 +286,8 @@ const netExplainer = () => S.net?.mode === 'station'
 // render
 // ---------------------------------------------------------------------------
 
+let lastRenderedScreen = null;
+
 function render() {
   const atBottom = () => {
     const b = root.querySelector('.body');
@@ -293,7 +295,22 @@ function render() {
   };
   const stick = S.screen === 'thread' && atBottom();
 
+  /* Roster updates arrive on their own schedule, every few seconds, as
+     beacons come in, and used to force a render no matter what screen was on
+     screen. Rebuilding innerHTML resets scroll to the top, so anyone reading
+     Settings while a beacon happened to land got yanked back up mid-scroll.
+     A render that lands on the SAME screen the person is already looking at
+     restores where they were; only an actual navigation gets to reset it. */
+  const sameScreen = lastRenderedScreen === S.screen;
+  const prevScroll = sameScreen ? root.querySelector('.body')?.scrollTop : 0;
+  lastRenderedScreen = S.screen;
+
   root.innerHTML = screens[S.screen]();
+
+  if (sameScreen && prevScroll) {
+    const b = root.querySelector('.body');
+    if (b) b.scrollTop = prevScroll;
+  }
 
   if (S.screen === 'thread') {
     const b = root.querySelector('.body');

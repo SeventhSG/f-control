@@ -26,6 +26,12 @@ void netkey_set_passphrase(const char *passphrase, size_t len);
  *  passphrase you might also use elsewhere. */
 void netkey_set_random(void);
 
+/** Adopts 32 bytes received from a peer directly as the key, no derivation.
+ *  Used for the auto key share triggered by confirming a contact, see the
+ *  long comment in net.c next to net_share_key for what this does and does
+ *  not protect against. */
+void netkey_set_raw(const uint8_t key[FCRYPTO_KEY_LEN]);
+
 /** Four byte fingerprint of the currently stored key, for the settings screen
  *  so two people can confirm out loud that they typed the same passphrase
  *  without either of them reading the key itself over the phone. */

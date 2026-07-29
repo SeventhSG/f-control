@@ -365,6 +365,14 @@ void web_on_message(const uint8_t src_id[FCP_ID_LEN], const char *text, size_t l
              (unsigned)len);
 }
 
+void web_on_keyshare(void) {
+    /* The fingerprint shown in Settings is the only visible sign this
+     * happened. Refreshing it here means the next time that screen is open,
+     * or if it is already open, it is already correct. */
+    ev_t ev = { .kind = EV_ME, .fd = -1 };
+    post(&ev);
+}
+
 /* ---- receiving from the dashboard -------------------------------------- */
 
 static bool parse_id(const char *hex, uint8_t out[FCP_ID_LEN]) {
@@ -419,6 +427,11 @@ static void handle_frame(const char *json, int fd) {
         if (cJSON_IsString(p) && parse_id(p->valuestring, peer) && contacts_confirm(peer)) {
             ESP_LOGI(TAG, "confirmed %02x%02x%02x%02x%02x%02x",
                      peer[0], peer[1], peer[2], peer[3], peer[4], peer[5]);
+            /* Confirming someone in person is also the trust decision that
+             * lets us skip typing a passphrase into two dashboards by hand.
+             * See the long comment beside net_share_key for exactly what
+             * this does and does not protect. */
+            net_share_key(peer);
             ev_t ev = { .kind = EV_ROSTER, .fd = -1 };
             post(&ev);
         }

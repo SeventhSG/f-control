@@ -333,6 +333,19 @@ pub fn flash_board(port: &str, on_progress: OnProgress) -> Result<Credentials, S
         eprintln!("could not switch to {FLASH_BAUD} baud, staying at {FLASH_BAUD_SAFE}: {e}");
     }
 
+    // Writing the three segments below only touches the flash regions they
+    // cover: bootloader, partition table, and the app. It never touches NVS,
+    // which lives in its own region further up, so a board's name, its wifi
+    // credentials, its network key, and every confirmed contact all survive
+    // a normal write untouched. That is a source of real confusion after a
+    // reflash, since the new firmware runs but keeps old, possibly stale
+    // state. A full chip erase here is what actually gives a fresh board,
+    // and it is what "flash firmware" should mean by default.
+    on_progress("erase", 0, total);
+    flasher.erase_flash().map_err(|e| {
+        format!("Could not erase the board before writing: {e}")
+    })?;
+
     let segments = [
         Segment::new(ADDR_BOOTLOADER, BOOTLOADER),
         Segment::new(ADDR_PARTITIONS, PARTITIONS),
@@ -340,7 +353,7 @@ pub fn flash_board(port: &str, on_progress: OnProgress) -> Result<Credentials, S
     ];
     let sizes: Vec<u64> = segments.iter().map(|s| s.data.len() as u64).collect();
 
-    on_progress("erase", 0, total);
+    on_progress("erase", total, total);
 
     let first_attempt = {
         let mut reporter = Reporter {

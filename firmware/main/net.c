@@ -23,9 +23,10 @@ static ident_t        *s_id;
 static fmesh_t         s_mesh;
 static SemaphoreHandle_t s_lock;
 static QueueHandle_t   s_rx_q;
-static net_msg_cb_t    s_on_msg;
-static net_roster_cb_t s_on_roster;
-static uint8_t         s_netkey[FCRYPTO_KEY_LEN];
+static net_msg_cb_t      s_on_msg;
+static net_roster_cb_t   s_on_roster;
+static net_keyshare_cb_t s_on_keyshare;
+static uint8_t           s_netkey[FCRYPTO_KEY_LEN];
 
 typedef struct {
     uint8_t frame[FCP_MAX_FRAME];
@@ -107,6 +108,63 @@ static void deliver(const fcp_hdr_t *h, const uint8_t *payload, size_t payload_l
     if (s_on_msg) s_on_msg(h->src_id, (const char *)plain, clen);
 }
 
+/*
+ * The auto key share triggered by pressing Confirm.
+ *
+ * What this is: a convenience, not a protocol. Two people who just verified
+ * each other's fingerprint in person, standing in the same room, get to skip
+ * typing a passphrase into two phones by hand. Pressing Confirm sends your
+ * board's current network key, as the 32 raw bytes it is, straight to the
+ * peer you just confirmed. The receiving board adopts it immediately,
+ * overwriting whatever key it held.
+ *
+ * What this is not: encrypted, authenticated, or safer than typing the same
+ * passphrase into both dashboards yourselves. It travels in the clear over
+ * the same open radio everything else does, so anyone listening at that
+ * exact moment learns the key too. This is acceptable only because sharing
+ * it by hand carried the identical exposure already, standing next to each
+ * other reading words aloud is itself the only authentication this build
+ * has. It is not acceptable to describe this to a user as a secure exchange,
+ * anywhere, ever, and the dashboard copy is written to not do that.
+ *
+ * The REQUEST type (0x02) is reused for this rather than adding a new wire
+ * type. It was reserved in the spec for the future Noise XX handshake and
+ * has sat unused; carrying 32 raw bytes fits the "any payload, any size"
+ * shape fcp.c already allows for it, and it means a real handshake can
+ * replace this function later without touching the wire format again.
+ */
+void net_share_key(const uint8_t dst_id[FCP_ID_LEN]) {
+    fcp_hdr_t h;
+    memset(&h, 0, sizeof h);
+    h.version = FCP_VERSION;
+    h.type = FCP_T_REQUEST;
+    h.flags = FCP_FLAG_ADDRESSED;
+    h.msg_id = esp_random();
+    h.hop_limit = 3;
+    h.hop_count = 0;
+    memcpy(h.src_id, s_id->id, FCP_ID_LEN);
+    memcpy(h.dst_id, dst_id, FCP_ID_LEN);
+
+    uint8_t key[FCRYPTO_KEY_LEN];
+    snapshot_key(key);
+
+    uint8_t frame[FCP_MAX_FRAME];
+    size_t flen = 0;
+    if (fcp_frame_encode(&h, key, sizeof key, frame, sizeof frame, &flen) == FCP_OK) {
+        air_send(frame, flen);
+        ESP_LOGI(TAG, "shared our network key with %02x%02x%02x%02x%02x%02x",
+                 dst_id[0], dst_id[1], dst_id[2], dst_id[3], dst_id[4], dst_id[5]);
+    }
+}
+
+static void receive_shared_key(const uint8_t *payload, size_t payload_len) {
+    if (payload_len != FCRYPTO_KEY_LEN) return;   /* not our shape, ignore */
+
+    netkey_set_raw(payload);
+    net_reload_key();
+    if (s_on_keyshare) s_on_keyshare();
+}
+
 static void rx_task(void *arg) {
     (void)arg;
     rx_item_t item;
@@ -123,7 +181,8 @@ static void rx_task(void *arg) {
             const uint8_t *p = NULL;
             size_t plen = 0;
             if (fcp_frame_decode(item.frame, item.len, &h, &p, &plen) == FCP_OK) {
-                deliver(&h, p, plen);
+                if (h.type == FCP_T_MSG) deliver(&h, p, plen);
+                else if (h.type == FCP_T_REQUEST) receive_shared_key(p, plen);
             }
         } else if (act == FMESH_BEACON) {
             /* Discovery is otherwise invisible without a phone attached to the
@@ -287,10 +346,12 @@ void net_stats(fmesh_stats_t *out) {
     xSemaphoreGive(s_lock);
 }
 
-void net_start(ident_t *id, net_msg_cb_t on_msg, net_roster_cb_t on_roster) {
+void net_start(ident_t *id, net_msg_cb_t on_msg, net_roster_cb_t on_roster,
+              net_keyshare_cb_t on_keyshare) {
     s_id = id;
     s_on_msg = on_msg;
     s_on_roster = on_roster;
+    s_on_keyshare = on_keyshare;
 
     s_lock = xSemaphoreCreateMutex();
     s_rx_q = xQueueCreate(12, sizeof(rx_item_t));

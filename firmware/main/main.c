@@ -61,7 +61,7 @@ void app_main(void) {
     /* The access point has to be up before ESP-NOW, because ESP-NOW rides on
      * the same radio and inherits its channel. */
     web_start(&s_id);
-    net_start(&s_id, web_on_message, web_send_roster);
+    net_start(&s_id, web_on_message, web_send_roster, web_on_keyshare);
     provision_start(&s_id);
 
     banner();

@@ -131,6 +131,9 @@ function mockHandle(frame) {
       const p = PEERS.find(x => x.id === frame.peer);
       if (p) p.verified = true;
       reply({ t: 'roster', peers: PEERS });
+      mockKeyFp = fakeFingerprint();
+      reply({ t: 'me', name: 'ozan', fp: 'copper still four', contacts: 3, max: 64,
+              crypto: 'netkey', netkeyFp: mockKeyFp });
       break;
     }
 

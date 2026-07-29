@@ -64,6 +64,12 @@ void netkey_set_random(void) {
     store_and_log("to a fresh random value");
 }
 
+void netkey_set_raw(const uint8_t key[FCRYPTO_KEY_LEN]) {
+    memcpy(s_key, key, FCRYPTO_KEY_LEN);
+    s_loaded = true;
+    store_and_log("received from a confirmed contact");
+}
+
 void netkey_fingerprint(char *out, size_t cap) {
     uint8_t key[FCRYPTO_KEY_LEN];
     if (!s_loaded) netkey_load(key);

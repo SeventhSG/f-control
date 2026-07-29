@@ -23,4 +23,7 @@ void web_send_roster(void);
 /** A message arrived over the radio. */
 void web_on_message(const uint8_t src_id[FCP_ID_LEN], const char *text, size_t len);
 
+/** Our network key just changed because a confirmed contact shared theirs. */
+void web_on_keyshare(void);
+
 #endif /* WEB_H */
