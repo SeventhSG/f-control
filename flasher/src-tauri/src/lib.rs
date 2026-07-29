@@ -335,6 +335,47 @@ async fn write_firmware(app: AppHandle, port: String) -> Result<Credentials, Str
     .map_err(|e| format!("The write task failed to run: {e}"))?
 }
 
+/// Prints whatever the board says, forever, until interrupted.
+///
+/// A board that misbehaves once a phone connects cannot be diagnosed from the
+/// phone, and telling somebody to go and install a serial terminal in order to
+/// report a bug is how bug reports stop arriving. This ships in the same
+/// binary as the flasher for that reason.
+pub fn monitor(port: &str) -> Result<(), String> {
+    use serialport::SerialPort;
+    use std::io::{Read, Write};
+
+    let mut serial = serialport::new(port, 115_200)
+        .timeout(std::time::Duration::from_millis(200))
+        .open_native()
+        .map_err(|e| format!("Could not open {port}: {e}"))?;
+
+    // Pulse reset so the boot banner is captured rather than joining midway
+    // through whatever the board was already doing.
+    let _ = serial.write_data_terminal_ready(false);
+    let _ = serial.write_request_to_send(true);
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    let _ = serial.write_request_to_send(false);
+
+    eprintln!("reading {port} at 115200, press Ctrl-C to stop");
+
+    let mut buf = [0u8; 1024];
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+
+    loop {
+        match serial.read(&mut buf) {
+            Ok(0) => {}
+            Ok(n) => {
+                let _ = out.write_all(&buf[..n]);
+                let _ = out.flush();
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(e) => return Err(format!("{port} stopped responding: {e}")),
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

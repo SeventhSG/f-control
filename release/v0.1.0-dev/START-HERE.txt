@@ -59,10 +59,22 @@ button while plugging it in, release it, then try again.
 COMMAND LINE
 ------------
 
-For flashing several boards in a row:
-
   f-control-flasher.exe --list
   f-control-flasher.exe --flash COM3
+  f-control-flasher.exe --monitor COM3
+
+
+IF SOMETHING GOES WRONG, SEND THE SERIAL LOG
+--------------------------------------------
+
+The board says what happened over USB, and that is the only place it
+says it. If it restarts, drops your wifi, or behaves oddly:
+
+  f-control-flasher.exe --monitor COM3 > log.txt
+
+Leave it running, reproduce the problem, then stop it with Ctrl-C.
+A crash appears as a block starting with "Guru Meditation Error" and
+that block is worth more than any description of the symptom.
 
 
 IF YOU PREFER esptool

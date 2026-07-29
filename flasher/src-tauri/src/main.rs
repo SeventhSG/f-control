@@ -7,6 +7,7 @@ use std::io::Write;
 ///
 ///     f-control-flasher --list
 ///     f-control-flasher --flash COM3
+///     f-control-flasher --monitor COM3
 ///
 /// With no arguments it opens the interface as usual.
 fn main() {
@@ -51,6 +52,17 @@ fn main() {
                     eprintln!("\n{e}");
                     std::process::exit(1);
                 }
+            }
+        }
+
+        Some("--monitor") => {
+            let Some(port) = args.get(1) else {
+                eprintln!("usage: f-control-flasher --monitor <port>");
+                std::process::exit(2);
+            };
+            if let Err(e) = fcontrol_flasher_lib::monitor(port) {
+                eprintln!("{e}");
+                std::process::exit(1);
             }
         }
 
