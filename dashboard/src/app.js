@@ -16,6 +16,8 @@ const S = {
   messages: [],
   draft: '',
   down: false,
+  noboard: false,
+  unread: new Set(),
 };
 
 const MAX_BYTES = 180;   // real FCP payload budget, see the spec
@@ -64,6 +66,19 @@ const bytes = s => new TextEncoder().encode(s).length;
 // ---------------------------------------------------------------------------
 
 const screens = {
+  /* Reached only when the page was served by a board but the live connection
+     never opened. It gets its own screen rather than a banner, because the
+     banners only render inside the roster and this failure happens before the
+     roster is ever reached. */
+  noboard: () => `
+    <div class="gate">
+      <div class="mark">f-control</div>
+      <p class="why bad" style="margin-top:20px">No answer from the board.</p>
+      <p class="why">This page came from the board, so it is powered and serving. The live connection did not open, which usually means the board is busy or was restarted while this page was loading.</p>
+      <p class="why">If that does not help, power the board off and on. Nothing is shown until it answers, because showing anything else would be made up.</p>
+      <button class="act" data-act="reload" style="margin-top:18px">Reload</button>
+    </div>`,
+
   gate: () => `
     <div class="gate">
       <div class="mark">f-control</div>
@@ -174,7 +189,7 @@ function entry(p) {
           : `<span class="blk"></span><span class="unv">UNVERIFIED</span>`}</div>
       </div>
       <div class="rt">
-        <b>${band(p)}</b>
+        <b>${S.unread.has(p.id) ? '<span style="color:var(--gold)">new message</span>' : band(p)}</b>
         <s>${signalLine(p)}</s>
       </div>
     </div>`;
@@ -191,6 +206,7 @@ function msgHtml(m) {
 
 function banners() {
   const out = [];
+
   /* First, always, and not dismissible. A person who flashed this after
      reading the README could reasonably believe their messages are protected.
      They are not, and the interface says so before anything else. */
@@ -248,6 +264,7 @@ root.addEventListener('click', e => {
   const peerId = e.target.closest('[data-peer]')?.dataset.peer;
   if (peerId) {
     S.peer = S.peers.find(p => p.id === peerId);
+    S.unread.delete(peerId);
     S.messages = [];
     S.draft = '';
     S.screen = 'thread';
@@ -262,6 +279,7 @@ root.addEventListener('click', e => {
   const act = e.target.closest('[data-act]')?.dataset.act;
   if (act === 'wipe' && confirm('Clear every message and session key on this board now?')) send({ t: 'wipe' });
   if (act === 'lock') send({ t: 'lock' });
+  if (act === 'reload') location.reload();
   if (act === 'backup') alert('Backup export arrives with the firmware that has a key to export.');
   if (act === 'net') alert('Network setup arrives with the firmware.');
 });
@@ -317,7 +335,18 @@ on(f => {
       if (S.peer?.id === f.peer) S.messages = f.messages;
       break;
     case 'msg':
-      if (S.peer?.id === f.peer) S.messages = [...S.messages, f.message];
+      if (S.peer?.id === f.peer) {
+        S.messages = [...S.messages, f.message];
+      } else if (f.message?.dir === 'in') {
+        /* A message for a thread that is not open would otherwise vanish with
+         * no trace anywhere in the interface, and the person who sent it would
+         * be told nothing either. Mark the sender so the roster shows it. */
+        S.unread.add(f.peer);
+      }
+      break;
+    case 'noboard':
+      S.noboard = true;
+      S.screen = 'noboard';
       break;
     case 'ack': {
       const m = S.messages.find(x => x.id === f.id);

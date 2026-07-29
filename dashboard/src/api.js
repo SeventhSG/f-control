@@ -9,19 +9,44 @@ const emit = frame => listeners.forEach(fn => fn(frame));
 let socket = null;
 let live = false;
 
-export function connect() {
-  const url = `ws://${location.host}/ws`;
-  try {
-    socket = new WebSocket(url);
-  } catch {
-    return startMock();
-  }
+/**
+ * The mock is a development tool and must never stand in for a real board.
+ *
+ * It used to take over whenever the socket failed, which meant a page served
+ * from an actual ESP32 could silently fall back to invented peers with
+ * invented names. Somebody testing two boards would have seen a populated
+ * roster and concluded the radio worked. That is the worst failure a tool like
+ * this can have: looking like it works.
+ *
+ * So the mock is now allowed only when the page is opened from a file or from
+ * localhost, which is to say only during development. Served from a board, a
+ * failed socket is reported as a failed socket.
+ */
+const devHost = location.protocol === 'file:'
+  || ['localhost', '127.0.0.1', ''].includes(location.hostname);
 
-  const fallback = setTimeout(() => { if (!live) startMock(); }, 1200);
+export function connect() {
+  if (devHost && location.protocol !== 'http:') return startMock();
+
+  let socket_;
+  try {
+    socket_ = new WebSocket(`ws://${location.host}/ws`);
+  } catch {
+    return devHost ? startMock() : emit({ t: 'noboard' });
+  }
+  socket = socket_;
+
+  const fallback = setTimeout(() => {
+    if (live) return;
+    if (devHost) startMock(); else emit({ t: 'noboard' });
+  }, 1500);
 
   socket.onopen = () => { live = true; clearTimeout(fallback); };
   socket.onmessage = e => { try { emit(JSON.parse(e.data)); } catch {} };
-  socket.onerror = () => { clearTimeout(fallback); if (!live) startMock(); };
+  socket.onerror = () => {
+    clearTimeout(fallback);
+    if (!live) { if (devHost) startMock(); else emit({ t: 'noboard' }); }
+  };
   socket.onclose = () => {
     if (!live) return;
     live = false;
