@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Everything the flasher window is allowed to do","local":true,"windows":["main"],"permissions":["core:default"]}}
