@@ -1,0 +1,5 @@
+.superpowers/
+node_modules/
+flasher/src-tauri/target/
+flasher/src-tauri/gen/
+dashboard/build/

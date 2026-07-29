@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'">
+  <title>f-control flasher</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <span class="wordmark">f-control</span>
+    <span class="role">flasher</span>
+  </header>
+
+  <nav class="steps" id="steps">
+    <div class="step" data-step="connect"><b>Connect</b></div>
+    <div class="step" data-step="write"><b>Write</b></div>
+    <div class="step" data-step="ready"><b>Ready</b></div>
+  </nav>
+
+  <main><div class="col" id="view"></div></main>
+
+  <footer id="actions"></footer>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
