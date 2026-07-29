@@ -5,10 +5,12 @@ REM Quoting a vcvars call through a POSIX shell is a losing game, so the whole
 REM invocation lives here where cmd owns the quoting rules.
 setlocal enabledelayedexpansion
 
+REM Include directories arrive in the FCP_INC environment variable, semicolon
+REM separated, because cmd treats a semicolon in an argument as a delimiter and
+REM would silently swallow everything after the first path.
 set "OUT=%~1"
 set "NAME=%~2"
-set "INC=%~3"
-shift
+set "INC=%FCP_INC%"
 shift
 shift
 
@@ -33,7 +35,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-set "COMMON=/nologo /W4 /WX /std:c11 /Zi /I"%INC%" /Fe:"%OUT%\%NAME%.exe" /Fo:"%OUT%\\" /Fd:"%OUT%\%NAME%.pdb""
+REM INC may list several directories separated by semicolons. Prepending them
+REM to INCLUDE handles that without building a /I switch per entry.
+set "INCLUDE=%INC%;%INCLUDE%"
+
+set "COMMON=/nologo /W4 /WX /std:c11 /Zi /Fe:"%OUT%\%NAME%.exe" /Fo:"%OUT%\\" /Fd:"%OUT%\%NAME%.pdb""
 
 REM Address sanitizer turns an out of bounds read in the fuzz pass into a hard
 REM failure instead of silence, which is the entire point of running it. It is
