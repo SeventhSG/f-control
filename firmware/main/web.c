@@ -423,6 +423,21 @@ static void handle_frame(const char *json, int fd) {
             post(&ev);
         }
 
+    } else if (strcmp(t->valuestring, "setkey") == 0) {
+        const cJSON *pw = cJSON_GetObjectItem(root, "passphrase");
+        if (cJSON_IsString(pw) && strlen(pw->valuestring) > 0) {
+            netkey_set_passphrase(pw->valuestring, strlen(pw->valuestring));
+            net_reload_key();
+            ev_t ev = { .kind = EV_ME, .fd = -1 };
+            post(&ev);
+        }
+
+    } else if (strcmp(t->valuestring, "newkey") == 0) {
+        netkey_set_random();
+        net_reload_key();
+        ev_t ev = { .kind = EV_ME, .fd = -1 };
+        post(&ev);
+
     } else if (strcmp(t->valuestring, "setname") == 0) {
         const cJSON *n = cJSON_GetObjectItem(root, "name");
         if (cJSON_IsString(n) && ident_set_name(s_id, n->valuestring)) {

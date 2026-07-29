@@ -13,6 +13,18 @@ static const char *NS = "fcontrol";
 static uint8_t s_key[FCRYPTO_KEY_LEN];
 static bool    s_loaded;
 
+static void store_and_log(const char *how) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_blob(h, "netkey", s_key, FCRYPTO_KEY_LEN);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    char fp[16];
+    fcrypto_key_fingerprint(s_key, fp, sizeof fp);
+    ESP_LOGI(TAG, "network key set %s, fingerprint %s", how, fp);
+}
+
 void netkey_load(uint8_t key[FCRYPTO_KEY_LEN]) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
@@ -43,17 +55,13 @@ void netkey_load(uint8_t key[FCRYPTO_KEY_LEN]) {
 void netkey_set_passphrase(const char *passphrase, size_t len) {
     fcrypto_derive_key(passphrase, len, s_key);
     s_loaded = true;
+    store_and_log("from a passphrase");
+}
 
-    nvs_handle_t h;
-    if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_blob(h, "netkey", s_key, FCRYPTO_KEY_LEN);
-        nvs_commit(h);
-        nvs_close(h);
-    }
-
-    char fp[16];
-    fcrypto_key_fingerprint(s_key, fp, sizeof fp);
-    ESP_LOGI(TAG, "network key set from a passphrase, fingerprint %s", fp);
+void netkey_set_random(void) {
+    esp_fill_random(s_key, FCRYPTO_KEY_LEN);
+    s_loaded = true;
+    store_and_log("to a fresh random value");
 }
 
 void netkey_fingerprint(char *out, size_t cap) {

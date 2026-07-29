@@ -21,6 +21,11 @@ void netkey_load(uint8_t key[FCRYPTO_KEY_LEN]);
  *  no other coordination. */
 void netkey_set_passphrase(const char *passphrase, size_t len);
 
+/** Replaces the stored key with a fresh random one, for starting a new,
+ *  private network that nobody else could guess their way into by trying a
+ *  passphrase you might also use elsewhere. */
+void netkey_set_random(void);
+
 /** Four byte fingerprint of the currently stored key, for the settings screen
  *  so two people can confirm out loud that they typed the same passphrase
  *  without either of them reading the key itself over the phone. */

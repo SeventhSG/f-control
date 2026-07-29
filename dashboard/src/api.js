@@ -83,6 +83,10 @@ const THREADS = {
 };
 
 let nextId = 100;
+let mockKeyFp = 'a91bf03c';
+
+const fakeFingerprint = () =>
+  [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, '0')).join('');
 
 function startMock() {
   live = false;
@@ -129,6 +133,18 @@ function mockHandle(frame) {
       reply({ t: 'roster', peers: PEERS });
       break;
     }
+
+    case 'setkey':
+      mockKeyFp = fakeFingerprint();
+      reply({ t: 'me', name: 'ozan', fp: 'copper still four', contacts: 3, max: 64,
+              crypto: 'netkey', netkeyFp: mockKeyFp });
+      break;
+
+    case 'newkey':
+      mockKeyFp = fakeFingerprint();
+      reply({ t: 'me', name: 'ozan', fp: 'copper still four', contacts: 3, max: 64,
+              crypto: 'netkey', netkeyFp: mockKeyFp });
+      break;
 
     case 'wipe':
       Object.keys(THREADS).forEach(k => delete THREADS[k]);

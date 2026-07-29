@@ -159,7 +159,16 @@ const screens = {
         <dl>
           <div class="rowline"><dt>Key</dt><dd><span class="words">${esc(S.me?.netkeyFp)}</span></dd></div>
         </dl>
-        <p style="margin-top:10px">Read this fingerprint aloud against another board's. If they differ, the two boards were given different network keys and cannot read each other. The key itself is set when the board is flashed.</p>
+        <p style="margin-top:10px">Read this fingerprint aloud against another board's. If they differ, the two boards cannot read each other yet.</p>
+
+        <div class="field" style="margin-top:14px">
+          <input id="key-phrase" placeholder="a phrase your friend also enters" autocomplete="off" spellcheck="false">
+          <button class="go" id="setkey">Match</button>
+        </div>
+        <p style="margin-top:8px">Whatever you type here, type the exact same thing on your friend's board. It takes effect right away, no restart, and only changes what new messages are sealed with, not anything already sent.</p>
+
+        <button class="act" data-act="newkey" style="margin-top:14px">Create a new key</button>
+        <p style="margin-top:8px">Starts a private network nobody else can read into, including boards that had your old key. Give the new fingerprint to whoever should be able to read you now.</p>
       </div>
 
       <div class="grp">
@@ -337,6 +346,13 @@ root.addEventListener('click', e => {
   if (e.target.id === 'savename') {
     const el = root.querySelector('#name');
     if (el) send({ t: 'setname', name: el.value.trim() });
+  }
+  if (e.target.id === 'setkey') {
+    const el = root.querySelector('#key-phrase');
+    if (el && el.value.trim()) { send({ t: 'setkey', passphrase: el.value }); el.value = ''; }
+  }
+  if (act === 'newkey' && confirm('This board will stop reading messages from anyone still on the old key. Continue?')) {
+    send({ t: 'newkey' });
   }
   if (e.target.id === 'joinwifi') {
     const pw = root.querySelector('#wifipass');

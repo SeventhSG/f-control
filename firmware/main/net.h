@@ -29,6 +29,11 @@ typedef void (*net_roster_cb_t)(void);
 
 void net_start(ident_t *id, net_msg_cb_t on_msg, net_roster_cb_t on_roster);
 
+/** Picks up whatever key is currently stored in NVS. Call after
+ *  netkey_set_passphrase() or netkey_set_random() so a live key change takes
+ *  effect on the next message immediately, with no reboot. */
+void net_reload_key(void);
+
 /** Copy the live roster. Returns how many were written. */
 size_t net_roster(fmesh_peer_t *out, size_t max);
 

@@ -66,6 +66,17 @@ static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int le
     }
 }
 
+/* s_netkey can change live from the dashboard now (see net_reload_key), on a
+ * different core from the radio tasks that encrypt and decrypt with it. A
+ * 32 byte array is not an atomic read, so a key change mid-operation could
+ * torn-read part old key, part new, and garble exactly one message. Copying
+ * it out under the lock first costs 32 bytes and closes that window. */
+static void snapshot_key(uint8_t out[FCRYPTO_KEY_LEN]) {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    memcpy(out, s_netkey, FCRYPTO_KEY_LEN);
+    xSemaphoreGive(s_lock);
+}
+
 static void deliver(const fcp_hdr_t *h, const uint8_t *payload, size_t payload_len) {
     /* Wire shape: nonce, ciphertext, tag. Sealed under the shared network key,
      * see fcrypto.h for exactly what that promises and what it does not: it
@@ -81,8 +92,11 @@ static void deliver(const fcp_hdr_t *h, const uint8_t *payload, size_t payload_l
     const size_t   clen   = payload_len - FCP_NONCE_LEN - FCP_TAG_LEN;
     const uint8_t *tag    = payload + FCP_NONCE_LEN + clen;
 
+    uint8_t key[FCRYPTO_KEY_LEN];
+    snapshot_key(key);
+
     uint8_t plain[FCP_PLAINTEXT_MAX];
-    if (!fcrypto_decrypt(s_netkey, nonce, cipher, clen, tag, plain)) {
+    if (!fcrypto_decrypt(key, nonce, cipher, clen, tag, plain)) {
         ESP_LOGW(TAG, "could not open a message from %02x%02x%02x%02x%02x%02x, "
                       "likely a different network key",
                  h->src_id[0], h->src_id[1], h->src_id[2],
@@ -246,7 +260,9 @@ uint32_t net_send_text(const uint8_t dst_id[FCP_ID_LEN], const char *text, size_
      * shared it. 24 random bytes make a collision astronomically unlikely
      * long before this key would be retired by any other means. */
     esp_fill_random(nonce, FCP_NONCE_LEN);
-    fcrypto_encrypt(s_netkey, nonce, (const uint8_t *)text, len, cipher, tag);
+    uint8_t key[FCRYPTO_KEY_LEN];
+    snapshot_key(key);
+    fcrypto_encrypt(key, nonce, (const uint8_t *)text, len, cipher, tag);
 
     uint8_t frame[FCP_MAX_FRAME];
     size_t flen = 0;
@@ -257,6 +273,12 @@ uint32_t net_send_text(const uint8_t dst_id[FCP_ID_LEN], const char *text, size_
 
     air_send(frame, flen);
     return h.msg_id;
+}
+
+void net_reload_key(void) {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    netkey_load(s_netkey);
+    xSemaphoreGive(s_lock);
 }
 
 void net_stats(fmesh_stats_t *out) {
