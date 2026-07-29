@@ -32,6 +32,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "contacts.h"
 #include "net.h"
 #include "netkey.h"
 #include "wifi.h"
@@ -233,10 +234,10 @@ static void send_roster(int fd) {
         cJSON *p = cJSON_CreateObject();
         cJSON_AddStringToObject(p, "id", idhex);
         cJSON_AddStringToObject(p, "name", peers[i].name);
-        /* Nothing is ever verified in this build, because there is no
-         * signature to check. The interface keeps the fingerprint redacted,
-         * which is the honest rendering of "unconfirmed". */
-        cJSON_AddBoolToObject(p, "verified", false);
+        /* Not cryptographic proof, there is no signature to check yet. This
+         * is a human's own record of having read the fingerprint aloud
+         * against this peer and confirmed it matched. See contacts.h. */
+        cJSON_AddBoolToObject(p, "verified", contacts_is_confirmed(peers[i].id));
         cJSON_AddStringToObject(p, "fp", words);
         cJSON_AddNumberToObject(p, "rssi", peers[i].rssi);
         cJSON_AddNumberToObject(p, "hops", peers[i].hops);
@@ -409,6 +410,16 @@ static void handle_frame(const char *json, int fd) {
 
             ev_t ev = { .kind = EV_MSG, .fd = -1, .msg_id = m->id };
             memcpy(ev.peer, peer, FCP_ID_LEN);
+            post(&ev);
+        }
+
+    } else if (strcmp(t->valuestring, "verify") == 0) {
+        const cJSON *p = cJSON_GetObjectItem(root, "peer");
+        uint8_t peer[FCP_ID_LEN];
+        if (cJSON_IsString(p) && parse_id(p->valuestring, peer) && contacts_confirm(peer)) {
+            ESP_LOGI(TAG, "confirmed %02x%02x%02x%02x%02x%02x",
+                     peer[0], peer[1], peer[2], peer[3], peer[4], peer[5]);
+            ev_t ev = { .kind = EV_ROSTER, .fd = -1 };
             post(&ev);
         }
 
