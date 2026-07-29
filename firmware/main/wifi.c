@@ -138,6 +138,15 @@ void wifi_start(const char *ap_ssid, uint8_t ap_channel) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    /* Left at its default, the radio dozes between transmissions to save
+     * power, and it does this on the SAME radio that is also running ESP-NOW
+     * beacons and relays. A phone connected to the board's access point reads
+     * those naps as the access point going quiet, and reconnects, over and
+     * over, exactly the "keeps disconnecting me" symptom this build hit.
+     * There is no modem sleep tradeoff worth making here: these boards run
+     * on USB power, not battery, so there is nothing to save. */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+
     if (s_configured) {
         char pass[WIFI_PASS_MAX + 1] = "";
         stored_password(pass, sizeof pass);
