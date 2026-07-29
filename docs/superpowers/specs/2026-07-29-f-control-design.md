@@ -149,11 +149,33 @@ Sizing the ring matters. At the 50 node design target, beacons alone would be 10
 1. Packet arrives. If it is a duplicate by the mechanism for its type, drop it and stop.
 2. Record it. The ring is 128 entries with a 60 second time to live.
 3. If `hop_limit` is 0, or the packet is addressed to us, do not relay.
-4. Otherwise wait a random 20 to 120 ms.
+4. Otherwise wait a random delay drawn from 20 ms to 20 ms plus a span that widens with density, described below.
 5. During that wait, if we hear the same `(src_id, msg_id)` rebroadcast by anyone else, cancel. Someone closer already did it.
 6. Otherwise decrement `hop_limit`, increment `hop_count`, and send.
 
 Step 5 is what stops the storm. In a dense cluster only one or two nodes actually rebroadcast, because everyone else hears it happen during their own delay window and stands down.
+
+**The window has to widen with the crowd, and this was measured rather than assumed.** A fixed 20 to 120 ms window offers 101 distinct delays at millisecond resolution. With 99 other nodes drawing from it, several draw the same smallest value and transmit simultaneously, before anyone can hear anyone else and stand down. No cancellation scheme can prevent that, because the collision happens before the first transmission exists. The first implementation used a fixed window and the density simulation caught it at 100 nodes.
+
+The span therefore grows with the number of audible peers:
+
+```
+span = 100 ms + 10 ms per known peer, capped at 1000 ms
+delay = 20 ms + random(0 .. span)
+```
+
+The cost is latency, and it is only paid in cells busy enough to need it. An empty cell still repeats within 120 ms.
+
+**Measured results,** one message through a single cell where every node hears every other node, worst case over 25 seeds, after a beacon phase so nodes actually know the density:
+
+| Nodes | Peers each node knows | Transmissions for one packet |
+|---|---|---|
+| 10 | 9 | 2 |
+| 25 | 24 | 2 |
+| 50 | 49 | 3 |
+| 100 | 64, the peer table cap | 3 |
+
+A naive flood is one transmission per node per hop, so the hundred node case would be in the hundreds.
 
 **Airtime budget.** ESP-NOW frames at the 1 Mbit basic rate cost roughly 2 ms including overhead. A 169 byte beacon every 5 seconds with one relay hop is 2 transmissions per node per interval.
 
