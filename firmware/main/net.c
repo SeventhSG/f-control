@@ -92,8 +92,23 @@ static void rx_task(void *arg) {
             if (fcp_frame_decode(item.frame, item.len, &h, &p, &plen) == FCP_OK) {
                 deliver(&h, p, plen);
             }
-        } else if (act == FMESH_BEACON && s_on_roster) {
-            s_on_roster();
+        } else if (act == FMESH_BEACON) {
+            /* Discovery is otherwise invisible without a phone attached to the
+             * dashboard, which makes a two board bring-up test impossible to
+             * observe. This line is the test output. */
+            fcp_hdr_t h;
+            const uint8_t *p = NULL;
+            size_t plen = 0;
+            if (fcp_frame_decode(item.frame, item.len, &h, &p, &plen) == FCP_OK) {
+                const fmesh_peer_t *peer = fmesh_peer(&s_mesh, h.src_id);
+                ESP_LOGI(TAG, "heard %02x%02x%02x%02x%02x%02x \"%s\"  %d dBm  %u hop%s",
+                         h.src_id[0], h.src_id[1], h.src_id[2],
+                         h.src_id[3], h.src_id[4], h.src_id[5],
+                         peer ? peer->name : "",
+                         (int)item.rssi, (unsigned)h.hop_count,
+                         h.hop_count == 1 ? "" : "s");
+            }
+            if (s_on_roster) s_on_roster();
         }
     }
 }

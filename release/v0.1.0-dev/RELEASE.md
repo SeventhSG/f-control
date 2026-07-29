@@ -31,7 +31,9 @@ This is the first build that runs on a real ESP32. Two boards should find each o
 
 ### With the desktop app, Windows
 
-Download **`f-control-flasher-windows-x64.exe`** and run it. No installer, no dependencies. Plug in an ESP32, the app finds it, click **Write firmware**.
+Download **`f-control-v0.1.0-dev-windows.zip`**, extract it anywhere, and run **`f-control-flasher.exe`**. No installer, nothing to configure. Plug in an ESP32, the app finds it, click **Write firmware**. `START-HERE.txt` in the zip covers the whole thing including what to do when a board does not show up.
+
+The zip was extracted to a clean folder and run from there before release, so it does not depend on anything left behind by a build.
 
 The firmware is compiled into the app itself, so there is no download step and nothing on disk between the build and your board.
 

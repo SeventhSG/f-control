@@ -42,7 +42,7 @@ Binaries and flashing instructions: [`release/v0.1.0-dev/`](release/v0.1.0-dev/R
 | Desktop flasher | Writes firmware, verified against a real board. Windows only so far |
 | **Encryption, signatures, verification** | **Not implemented** |
 
-Download `f-control-flasher-windows-x64.exe`, run it, plug in a board, click **Write firmware**. The firmware is compiled into the app, so nothing is downloaded and nothing sits on disk between the build and your board. It also runs headless with `--list` and `--flash COM3`.
+Download [`f-control-v0.1.0-dev-windows.zip`](release/v0.1.0-dev/), extract it anywhere, run `f-control-flasher.exe`, plug in a board, click **Write firmware**. No installer, no dependencies, nothing to configure. The firmware is compiled into the app, so nothing is downloaded and nothing sits on disk between the build and your board. It also runs headless with `--list` and `--flash COM3`.
 
 On macOS and Linux, use [esptool](https://github.com/espressif/esptool):
 

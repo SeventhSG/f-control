@@ -1,0 +1,92 @@
+f-control  v0.1.0-dev
+=====================
+
+THIS BUILD HAS NO ENCRYPTION.
+
+Messages travel in clear over the air. Anyone with a receiver can read
+them. Nothing is signed, so anyone can claim to be anyone. This is a
+hardware bring-up build. Do not use it to say anything you would not
+shout across a car park.
+
+
+TO FLASH A BOARD
+----------------
+
+1. Plug an ESP32 into USB. Use a cable that carries data. A lot of
+   cheap cables only carry power, and the board will look dead.
+
+2. Run  f-control-flasher.exe
+
+3. The board should appear within a second or two. Click WRITE FIRMWARE.
+
+That is all. The firmware is inside the exe. Nothing is downloaded.
+
+
+TO USE IT
+---------
+
+1. On a phone, open the wifi list and join the open network named
+   f-control- followed by four characters. There is no password.
+
+2. Open  http://192.168.4.1  in the phone's browser.
+
+3. Other boards in range appear in the list within about ten seconds.
+
+To send messages between two boards you need TWO phones or tablets, one
+joined to each board. Each board runs its own wifi network and a phone
+can only be on one network at a time.
+
+
+IF THE BOARD DOES NOT APPEAR IN THE FLASHER
+-------------------------------------------
+
+The USB serial driver is the usual cause. Check which chip your board
+uses and install the current driver:
+
+  CP2102 / CP210x   silabs.com  ->  CP210x VCP Drivers
+  CH340 / CH9102    wch-ic.com  ->  CH341SER
+  FT232             ftdichip.com -> VCP Drivers
+
+An old driver can be worse than a missing one. If Windows shows the
+device as working but flashing fails with "a device attached to the
+system is not functioning", the driver is too old. Uninstall it, tick
+"delete the driver software", unplug, install the current one, replug.
+
+If the board is found but will not accept the write, hold the BOOT
+button while plugging it in, release it, then try again.
+
+
+COMMAND LINE
+------------
+
+For flashing several boards in a row:
+
+  f-control-flasher.exe --list
+  f-control-flasher.exe --flash COM3
+
+
+IF YOU PREFER esptool
+---------------------
+
+The raw images are in the firmware folder.
+
+  esptool.py --chip esp32 -p COM3 -b 460800 write_flash ^
+    --flash_mode dio --flash_size 4MB --flash_freq 40m ^
+    0x1000 firmware/bootloader.bin ^
+    0x8000 firmware/partition-table.bin ^
+    0x10000 firmware/f-control.bin
+
+
+WHAT DOES NOT WORK YET
+----------------------
+
+- No encryption, no signatures, no verification.
+- No delivery confirmation. A sent message stays at "sending" forever
+  even when it arrived. Check the receiving board to confirm.
+- Access point mode only. It cannot join your home wifi.
+- Windows only for the flasher. Use esptool elsewhere.
+
+Checksums for everything are in SHA256SUMS.
+Full notes are in RELEASE.md.
+
+github.com/SeventhSG/f-control
