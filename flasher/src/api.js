@@ -82,10 +82,6 @@ const mock = {
     onProgress({ phase: 'write', done: total, total });
     onProgress({ phase: 'verify', done: total, total });
     await sleep(800);
-    return {
-      ssid: 'f-control-a91b',
-      password: 'kt7m-2xvp-r94q',
-      fingerprint: 'horse amber nine',
-    };
+    return { chip: 'Esp32', mac: 'ec:e3:34:da:c3:a0' };
   },
 };

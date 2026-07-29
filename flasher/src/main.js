@@ -80,24 +80,20 @@ const screens = {
   done: () => {
     const c = state.credentials;
     return `
-      <h1>Ready</h1>
-      <p class="lede">The board generated its own keypair on first boot. The private key is on the chip and has never been anywhere else, including this computer.</p>
+      <h1>Written</h1>
+      <p class="lede">The board is running f-control and has restarted.</p>
       <div class="cred">
         <div class="row">
-          <button class="copy" data-copy="${esc(c.ssid)}">copy</button>
-          <div class="k">Network</div><div class="v">${esc(c.ssid)}</div>
+          <div class="k">Chip</div><div class="v">${esc(c.chip)}</div>
         </div>
         <div class="row">
-          <button class="copy" data-copy="${esc(c.password)}">copy</button>
-          <div class="k">Password</div><div class="v">${esc(c.password)}</div>
-        </div>
-        <div class="row">
-          <div class="k">Fingerprint</div><div class="v words">${esc(c.fingerprint)}</div>
+          <button class="copy" data-copy="${esc(c.mac)}">copy</button>
+          <div class="k">MAC</div><div class="v">${esc(c.mac)}</div>
         </div>
       </div>
-      <p class="lede">Join that network from your phone or laptop, then open <span style="color:var(--bone)">192.168.4.1</span>. The board asks you to set a passphrase, and after that it will not beacon or accept a conversation until it is unlocked.</p>
-      <div class="notice good">Those three words are your identity. Read them aloud to someone in person and they can confirm they are really talking to you. Nobody can do that for you, and no server will vouch for you.</div>
-      <div class="notice warn"><b>Write the network password down now.</b> It is generated on the board and this screen is the only place it is shown.</div>`;
+      <p class="lede">The board makes its own identity on first boot, from its own random number generator. <span style="color:var(--bone)">This program never sees it</span>, so it cannot show it to you and cannot keep a copy.</p>
+      <p class="lede">To find it: join the open network named <span style="color:var(--bone)">f-control-</span> followed by four characters, then open <span style="color:var(--bone)">192.168.4.1</span>. The fingerprint is on the settings screen.</p>
+      <div class="notice warn"><b>This build has no encryption.</b> Messages travel in clear over the air and anyone with a receiver can read them. Nothing is signed, so anyone can claim any name. It is a bring-up build, not something to trust.</div>`;
   },
 
   error: () => `
@@ -247,7 +243,7 @@ if (isMock() && devScreen) {
     selected: { port: 'COM7', label: 'ESP32 board', adapter: 'CP210x', certain: false },
     firmware: await firmwareInfo(),
     progress: { phase: 'write', done: 712_000, total: 1_284_096 },
-    credentials: { ssid: 'f-control-a91b', password: 'kt7m-2xvp-r94q', fingerprint: 'horse amber nine' },
+    credentials: { chip: 'Esp32', mac: 'ec:e3:34:da:c3:a0' },
     error: {
       title: 'The board stopped responding',
       detail: 'Timed out waiting for the chip to acknowledge a block at offset 0x21000.',

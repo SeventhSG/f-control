@@ -22,12 +22,29 @@ This is the first build that runs on a real ESP32. Two boards should find each o
 | Roster with signal-derived distance | yes |
 | Mesh relay with flood suppression | yes, tested to 100 simulated nodes |
 | Short messages between boards | yes, unencrypted |
+| Desktop flasher writes firmware | yes, verified against a real board |
 | Delivery confirmation | **no**, there are no acknowledgements yet |
 | Encryption, signatures, verification | **no** |
 | Joining your home wifi | **no**, access point mode only |
-| Desktop flasher writing firmware | **no**, use esptool as below |
 
 ## Flashing
+
+### With the desktop app, Windows
+
+Download **`f-control-flasher-windows-x64.exe`** and run it. No installer, no dependencies. Plug in an ESP32, the app finds it, click **Write firmware**.
+
+The firmware is compiled into the app itself, so there is no download step and nothing on disk between the build and your board.
+
+It also runs headless, which is useful for flashing several boards in a row:
+
+```
+f-control-flasher-windows-x64.exe --list
+f-control-flasher-windows-x64.exe --flash COM3
+```
+
+macOS and Linux builds are not ready. Use esptool below.
+
+### With esptool, any platform
 
 You need [esptool](https://github.com/espressif/esptool) (`pip install esptool`) and a USB cable that carries data, not just power.
 
@@ -42,17 +59,17 @@ esptool.py --chip esp32 -p COM3 -b 460800 \
 
 Replace `COM3` with your port. On macOS and Linux it looks like `/dev/tty.usbserial-0001` or `/dev/ttyUSB0`.
 
-Verify the files first:
+Verify the downloads first:
 
 ```
 sha256sum -c SHA256SUMS
 ```
 
-If the board will not connect, hold the **BOOT** button while plugging it in, release it, then run the command again.
+If the board will not connect, hold the **BOOT** button while plugging it in, release it, then try again.
 
 ## Using it
 
-1. Flash both boards. Each generates its own random identity on first boot and keeps it.
+1. Flash both boards. Each generates its own random identity on first boot and keeps it, including across reflashing.
 2. Open the serial monitor at 115200 baud to see the fingerprint and access point name, or skip this and read the name off the wifi list.
 3. On a phone, join the open network **`f-control-XXXX`** and open **http://192.168.4.1**.
 4. The other board should appear in the roster within about ten seconds.

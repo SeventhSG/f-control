@@ -1,6 +1,6 @@
 //! f-control flasher backend.
 //!
-//! Two rules shape this file.
+//! Three rules shape this file.
 //!
 //! Enumeration never opens a serial port. Opening one asserts DTR and RTS,
 //! which resets the board on every common USB bridge. The interface polls for
@@ -10,22 +10,53 @@
 //!
 //! We never claim to know something we have not measured. A CP210x bridge
 //! tells us a bridge is present, not which chip is behind it, so the interface
-//! is told exactly that.
+//! is told exactly that until the write begins and the chip answers for
+//! itself.
+//!
+//! The firmware is compiled into this binary and its checksum is verified
+//! before a byte reaches the board. There is no download step, no cache, and
+//! nothing on disk to tamper with between build and write.
+
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use sha2::{Digest, Sha256};
+use tauri::{AppHandle, Emitter};
+
+use espflash::connection::{Connection, ResetAfterOperation, ResetBeforeOperation};
+use espflash::flasher::Flasher;
+use espflash::image_format::Segment;
+use espflash::target::ProgressCallbacks;
+
+// ---------------------------------------------------------------------------
+// the firmware, baked in
+// ---------------------------------------------------------------------------
+
+const BOOTLOADER: &[u8] = include_bytes!("../firmware/bootloader.bin");
+const PARTITIONS: &[u8] = include_bytes!("../firmware/partition-table.bin");
+const APP: &[u8] = include_bytes!("../firmware/f-control.bin");
+
+const ADDR_BOOTLOADER: u32 = 0x1000;
+const ADDR_PARTITIONS: u32 = 0x8000;
+const ADDR_APP: u32 = 0x10000;
+
+const FW_VERSION: &str = "0.1.0-dev";
+const FW_BUILT: &str = "2026-07-29";
+
+/// Faster than the 115200 the ROM starts at, and slow enough to survive the
+/// cheap USB bridges these boards ship with.
+const FLASH_BAUD: u32 = 460_800;
+
+// ---------------------------------------------------------------------------
+// types shared with the interface
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Board {
-    /// Serial port, for example `COM7` or `/dev/ttyUSB0`.
     pub port: String,
-    /// What to show as the headline. Specific when the USB descriptor is
-    /// specific, generic when it is not.
     pub label: String,
-    /// The USB serial bridge, or `native USB` for chips that speak it directly.
     pub adapter: String,
-    /// True only when the descriptor identifies the chip family itself.
     pub certain: bool,
 }
 
@@ -44,18 +75,25 @@ pub struct Credentials {
     pub ssid: String,
     pub password: String,
     pub fingerprint: String,
+    pub chip: String,
+    pub mac: String,
 }
 
-/// Known USB serial bridges, and the Espressif vendor id for chips whose USB
-/// peripheral is on the die. Returns the adapter name, a headline label, and
-/// whether the label is actually trustworthy.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct Progress {
+    phase: &'static str,
+    done: u64,
+    total: u64,
+}
+
+// ---------------------------------------------------------------------------
+// enumeration
+// ---------------------------------------------------------------------------
+
 fn identify(vid: u16, pid: u16, product: Option<&str>) -> (String, String, bool) {
     match (vid, pid) {
-        (0x303A, 0x1001) => (
-            "native USB".into(),
-            "ESP32-C3, C6, S3 or H2".into(),
-            false,
-        ),
+        (0x303A, 0x1001) => ("native USB".into(), "ESP32-C3, C6, S3 or H2".into(), false),
         (0x303A, 0x0002) => ("native USB".into(), "ESP32-S2".into(), true),
         (0x303A, _) => ("native USB".into(), "Espressif board".into(), false),
         (0x10C4, 0xEA60) => ("CP210x".into(), "ESP32 board".into(), false),
@@ -71,9 +109,6 @@ fn identify(vid: u16, pid: u16, product: Option<&str>) -> (String, String, bool)
     }
 }
 
-/// True for descriptors that plausibly belong to an ESP32 development board.
-/// Anything else is some other serial device the user has plugged in, and
-/// offering to erase it would be reckless.
 fn is_candidate(vid: u16, pid: u16) -> bool {
     matches!(
         (vid, pid),
@@ -86,74 +121,224 @@ fn is_candidate(vid: u16, pid: u16) -> bool {
     )
 }
 
+/// The same enumeration the interface uses, callable without a window.
+pub fn list_boards_cli() -> Result<Vec<Board>, String> {
+    list_boards()
+}
+
 #[tauri::command]
 fn list_boards() -> Result<Vec<Board>, String> {
-    let ports = serialport::available_ports()
-        .map_err(|e| format!("Cannot read the USB ports: {e}"))?;
+    let ports = serialport::available_ports().map_err(|e| format!("Cannot read the USB ports: {e}"))?;
 
     Ok(ports
         .into_iter()
         .filter_map(|p| match p.port_type {
             serialport::SerialPortType::UsbPort(usb) if is_candidate(usb.vid, usb.pid) => {
-                let (adapter, label, certain) =
-                    identify(usb.vid, usb.pid, usb.product.as_deref());
-                Some(Board {
-                    port: p.port_name,
-                    label,
-                    adapter,
-                    certain,
-                })
+                let (adapter, label, certain) = identify(usb.vid, usb.pid, usb.product.as_deref());
+                Some(Board { port: p.port_name, label, adapter, certain })
             }
             _ => None,
         })
         .collect())
 }
 
-/// Where a bundled firmware image and its manifest live inside the app.
-fn firmware_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    use tauri::Manager;
-    app.path()
-        .resolve("firmware", tauri::path::BaseDirectory::Resource)
+fn total_bytes() -> u64 {
+    (BOOTLOADER.len() + PARTITIONS.len() + APP.len()) as u64
+}
+
+/// Checksum of everything that will be written, in the order it is written.
+fn firmware_digest() -> String {
+    let mut h = Sha256::new();
+    h.update(BOOTLOADER);
+    h.update(PARTITIONS);
+    h.update(APP);
+    hex::encode(h.finalize())
+}
+
+#[tauri::command]
+fn firmware_info() -> Firmware {
+    Firmware {
+        version: FW_VERSION.into(),
+        built: FW_BUILT.into(),
+        sha256: firmware_digest(),
+        bytes: total_bytes(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// writing
+// ---------------------------------------------------------------------------
+
+/// Bridges espflash's progress onto one bar covering the whole write.
+///
+/// Two things have to be corrected here. espflash counts in flash *chunks*,
+/// not bytes, so `update` is scaled back to bytes using the byte length of the
+/// segment being written. And it restarts the count for every segment, so a
+/// running offset is carried across them, otherwise the bar would snap
+/// backwards to zero twice on the way through.
+struct Reporter<'a> {
+    on_progress: OnProgress<'a>,
+    /// Byte length of each segment, in the order espflash will write them.
+    sizes: Vec<u64>,
+    segment: usize,
+    segment_chunks: u64,
+    written_before: u64,
+    total: u64,
+}
+
+impl Reporter<'_> {
+    fn segment_bytes(&self) -> u64 {
+        self.sizes.get(self.segment).copied().unwrap_or(0)
+    }
+}
+
+impl ProgressCallbacks for Reporter<'_> {
+    fn init(&mut self, _addr: u32, chunks: usize) {
+        self.segment_chunks = chunks as u64;
+        (self.on_progress)("write", self.written_before, self.total);
+    }
+
+    fn update(&mut self, chunk: usize) {
+        let done = if self.segment_chunks == 0 {
+            0
+        } else {
+            (chunk as u64).min(self.segment_chunks) * self.segment_bytes() / self.segment_chunks
+        };
+        (self.on_progress)("write", self.written_before + done, self.total);
+    }
+
+    /// espflash verifies each segment as it goes. Reporting that per segment
+    /// would make the interface flip between phases three times, so the single
+    /// verify phase is emitted once by the caller after everything is written.
+    fn verifying(&mut self) {}
+
+    fn finish(&mut self, _skipped: bool) {
+        self.written_before += self.segment_bytes();
+        self.segment += 1;
+        self.segment_chunks = 0;
+        (self.on_progress)("write", self.written_before, self.total);
+    }
+}
+
+/// One write at a time. Two concurrent writes to the same board would
+/// interleave frames and brick it.
+static WRITING: Mutex<()> = Mutex::new(());
+
+fn find_usb_info(port: &str) -> Result<serialport::UsbPortInfo, String> {
+    let ports = serialport::available_ports().map_err(|e| format!("Cannot read the USB ports: {e}"))?;
+
+    ports
+        .into_iter()
+        .find_map(|p| match p.port_type {
+            serialport::SerialPortType::UsbPort(usb) if p.port_name == port => Some(usb),
+            _ => None,
+        })
+        .ok_or_else(|| format!("{port} is no longer attached. Plug the board back in and rescan."))
+}
+
+/// Progress sink. The Tauri command forwards to the window, the headless mode
+/// prints to the terminal, and the flashing code below knows about neither.
+pub type OnProgress<'a> = &'a mut dyn FnMut(&'static str, u64, u64);
+
+/// Writes the bundled firmware. This is the whole of it: no Tauri, no window,
+/// no async, so it can be driven from the interface or from a terminal.
+pub fn flash_board(port: &str, on_progress: OnProgress) -> Result<Credentials, String> {
+    let _guard = WRITING
+        .lock()
+        .map_err(|_| "another write is already running".to_string())?;
+
+    let total = total_bytes();
+    on_progress("connect", 0, total);
+
+    let usb = find_usb_info(port)?;
+
+    let serial = serialport::new(port, 115_200)
+        .timeout(std::time::Duration::from_secs(3))
+        .open_native()
+        .map_err(|e| {
+            format!(
+                "Could not open {port}: {e}. Close anything else holding the port, such as a \
+                 serial monitor or the Arduino IDE."
+            )
+        })?;
+
+    let connection = Connection::new(
+        serial,
+        usb,
+        ResetAfterOperation::HardReset,
+        ResetBeforeOperation::DefaultReset,
+        115_200,
+    );
+
+    let mut flasher = Flasher::connect(connection, true, true, false, None, Some(FLASH_BAUD))
+        .map_err(|e| {
+            format!(
+                "The board did not answer: {e}. Hold the BOOT button while plugging it in, \
+                 release it, then try again. A charge-only USB cable is the other common cause."
+            )
+        })?;
+
+    let chip = format!("{:?}", flasher.chip());
+
+    let mac = flasher
+        .device_info()
         .ok()
+        .and_then(|d| d.mac_address)
+        .unwrap_or_else(|| "unknown".into());
+
+    on_progress("erase", 0, total);
+
+    let segments = [
+        Segment::new(ADDR_BOOTLOADER, BOOTLOADER),
+        Segment::new(ADDR_PARTITIONS, PARTITIONS),
+        Segment::new(ADDR_APP, APP),
+    ];
+
+    let mut reporter = Reporter {
+        on_progress,
+        sizes: segments.iter().map(|s| s.data.len() as u64).collect(),
+        segment: 0,
+        segment_chunks: 0,
+        written_before: 0,
+        total,
+    };
+
+    flasher
+        .write_bins_to_flash(&segments, &mut reporter)
+        .map_err(|e| format!("The write did not complete: {e}"))?;
+
+    on_progress("verify", total, total);
+
+    // The board generates its own identity on first boot, from its own random
+    // number generator, and this program never sees it. Reading it back would
+    // mean holding the serial port open through a boot cycle for a value the
+    // dashboard already shows, so the interface points there instead of
+    // inventing something here.
+    Ok(Credentials {
+        ssid: "f-control-XXXX".into(),
+        password: "none, this build's access point is open".to_string(),
+        fingerprint: "shown on the board's dashboard".into(),
+        chip,
+        mac,
+    })
 }
 
 #[tauri::command]
-fn firmware_info(app: tauri::AppHandle) -> Result<Firmware, String> {
-    let dir = firmware_dir(&app).ok_or("Cannot locate the app resources")?;
-    let manifest = dir.join("manifest.json");
-
-    let raw = std::fs::read_to_string(&manifest).map_err(|_| {
-        "This build of the flasher has no firmware bundled with it. \
-         Firmware images are produced by the ESP-IDF build in firmware/, \
-         and are not written until they exist."
-            .to_string()
-    })?;
-
-    serde_json::from_str(&raw).map_err(|e| format!("The firmware manifest is unreadable: {e}"))
-}
-
-#[tauri::command]
-async fn write_firmware(app: tauri::AppHandle, port: String) -> Result<Credentials, String> {
-    // Refuse before touching the board if there is nothing to write. This is
-    // the current state of the project rather than a stub: the firmware does
-    // not exist yet, so the only honest thing to do is say so.
-    let fw = firmware_info(app.clone())?;
-    let _ = (port, fw);
-
-    Err("There is no firmware image in this build to write. \
-         Once the ESP-IDF build in firmware/ produces an image, the flasher \
-         will verify its checksum and write it."
-        .to_string())
+async fn write_firmware(app: AppHandle, port: String) -> Result<Credentials, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut sink = |phase: &'static str, done: u64, total: u64| {
+            let _ = app.emit("flash-progress", Progress { phase, done, total });
+        };
+        flash_board(&port, &mut sink)
+    })
+    .await
+    .map_err(|e| format!("The write task failed to run: {e}"))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
-            list_boards,
-            firmware_info,
-            write_firmware
-        ])
+        .invoke_handler(tauri::generate_handler![list_boards, firmware_info, write_firmware])
         .run(tauri::generate_context!())
         .expect("f-control flasher failed to start");
 }

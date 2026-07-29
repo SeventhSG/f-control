@@ -6,3 +6,4 @@ firmware/build/
 firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/main/index.html.gz
+flasher/src-tauri/firmware/

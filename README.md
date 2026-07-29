@@ -39,13 +39,15 @@ Binaries and flashing instructions: [`release/v0.1.0-dev/`](release/v0.1.0-dev/R
 | Roster with signal-derived distance | Works |
 | Short messages between boards | Works, **in the clear** |
 | Delivery confirmation | Not implemented, no acknowledgements yet |
-| Desktop flasher | Detects boards. **Does not write firmware yet**, use esptool |
+| Desktop flasher | Writes firmware, verified against a real board. Windows only so far |
 | **Encryption, signatures, verification** | **Not implemented** |
 
-Flash it with [esptool](https://github.com/espressif/esptool):
+Download `f-control-flasher-windows-x64.exe`, run it, plug in a board, click **Write firmware**. The firmware is compiled into the app, so nothing is downloaded and nothing sits on disk between the build and your board. It also runs headless with `--list` and `--flash COM3`.
+
+On macOS and Linux, use [esptool](https://github.com/espressif/esptool):
 
 ```
-esptool.py --chip esp32 -p COM3 -b 460800 write_flash \
+esptool.py --chip esp32 -p /dev/ttyUSB0 -b 460800 write_flash \
   --flash_mode dio --flash_size 4MB --flash_freq 40m \
   0x1000 bootloader.bin 0x8000 partition-table.bin 0x10000 f-control.bin
 ```
