@@ -372,9 +372,15 @@ void net_start(ident_t *id, net_msg_cb_t on_msg, net_roster_cb_t on_roster,
     peer.encrypt = false;
     ESP_ERROR_CHECK(esp_now_add_peer(&peer));
 
-    xTaskCreate(rx_task, "fc_rx", 4096, NULL, 6, NULL);
-    xTaskCreate(relay_task, "fc_relay", 3072, NULL, 5, NULL);
-    xTaskCreate(beacon_task, "fc_beacon", 3072, NULL, 4, NULL);
+    /* Pinned off core 0 on purpose. The WiFi driver's own time-critical work,
+     * including answering a phone's association handshake with the access
+     * point, runs on core 0. Three tasks polling and transmitting on the
+     * radio from whichever core the scheduler happened to pick could delay
+     * that handshake at exactly the wrong moment, which looks from a phone's
+     * side like an access point that only sometimes answers. */
+    xTaskCreatePinnedToCore(rx_task, "fc_rx", 4096, NULL, 6, NULL, 1);
+    xTaskCreatePinnedToCore(relay_task, "fc_relay", 3072, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(beacon_task, "fc_beacon", 3072, NULL, 4, NULL, 1);
 
     ESP_LOGI(TAG, "radio up on channel %u", NET_CHANNEL);
 }

@@ -287,8 +287,32 @@ const netExplainer = () => S.net?.mode === 'station'
 // ---------------------------------------------------------------------------
 
 let lastRenderedScreen = null;
+let renderPending = false;
+
+/* Every incoming frame, including a roster update that just means "a beacon
+ * arrived," used to call render() unconditionally, which replaces the whole
+ * screen's DOM. Replacing a DOM node that currently has keyboard focus blurs
+ * it, on every browser, with no way to opt out, whether or not the code ever
+ * calls .focus() itself. On a phone that closes the keyboard mid-sentence,
+ * which is exactly "one second of keyboard then kicked out" for any field on
+ * any screen, not just the compose box the first fix addressed.
+ *
+ * The actual fix has to be at this level: while a text field in view has
+ * focus, do not touch the DOM at all. State updates still land in S, they are
+ * just not painted until the field loses focus, at which point whatever is
+ * pending is applied in one shot. A render the USER caused, by tapping Send
+ * or a settings button, is unaffected: the click already moved focus off the
+ * input before its handler runs, so this guard is not looking at that input
+ * by the time it checks. */
+function isTypingSomewhere() {
+  const el = document.activeElement;
+  return !!el && root.contains(el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
 
 function render() {
+  if (isTypingSomewhere()) { renderPending = true; return; }
+  renderPending = false;
+
   const atBottom = () => {
     const b = root.querySelector('.body');
     return !b || b.scrollHeight - b.scrollTop - b.clientHeight < 60;
@@ -392,6 +416,17 @@ root.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   if (e.target.id === 'draft') doSend();
   if (e.target.id === 'pass') doUnlock();
+});
+
+// 'blur' does not bubble, 'focusout' does. Whatever a person was typing into
+// just lost focus, so any render that arrived while they were typing and was
+// deferred is safe to apply now. Deferred by one tick rather than run here
+// directly: focusout fires as part of losing focus to whatever was just
+// tapped, commonly a button, and replacing the DOM before that button's own
+// click finishes dispatching would swap the element out from under the
+// click and the button press would be silently lost.
+root.addEventListener('focusout', () => {
+  if (renderPending) setTimeout(() => { if (renderPending) render(); }, 0);
 });
 
 function doUnlock() {
