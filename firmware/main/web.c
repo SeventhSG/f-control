@@ -216,7 +216,11 @@ static void handle_frame(const char *json) {
             const size_t len = strlen(x->valuestring);
             const uint32_t mid = net_send_text(peer, x->valuestring, len);
 
-            msg_t *m = msg_add(peer, true, x->valuestring, len, mid ? "heard" : "lost");
+            /* "heard" would be a lie. This build has no acknowledgements, so
+             * all we know is that the frame left the radio. The interface
+             * renders anything that is not heard or lost as still in flight,
+             * which is exactly the truth. */
+            msg_t *m = msg_add(peer, true, x->valuestring, len, mid ? "pending" : "lost");
             cJSON *o = cJSON_CreateObject();
             cJSON_AddStringToObject(o, "t", "msg");
             cJSON_AddStringToObject(o, "peer", p->valuestring);
