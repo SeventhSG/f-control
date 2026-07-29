@@ -76,7 +76,8 @@ function mockHandle(frame) {
           t: 'net', mode: 'station', ssid: 'not the wifi', channel: 6,
           beta: true, meshChannel: 1,
         });
-        reply({ t: 'me', name: 'ozan', fp: 'copper still four', contacts: 3, max: 64 });
+        reply({ t: 'me', name: 'ozan', fp: 'copper still four', contacts: 3, max: 64,
+                nocrypto: true });
       } else {
         reply({ t: 'state', locked: true, attemptsLeft: 2, bad: true });
       }

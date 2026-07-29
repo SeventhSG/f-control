@@ -1,0 +1,17 @@
+# f-control firmware defaults.
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# The dashboard is served over a websocket, which is off by default.
+CONFIG_HTTPD_WS_SUPPORT=y
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+
+# ESP-NOW needs the wifi stack up but never associates with anything.
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
+
+# Long station names and a roster of peers live in RAM, not flash.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10

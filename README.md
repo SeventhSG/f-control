@@ -20,8 +20,22 @@ f-control removes the assumption. There is no provider. There is no server. Ther
 
 You need one four dollar board. That is the whole requirement.
 
+> [!CAUTION]
+> **`v0.1.0-dev` has no encryption at all.** Firmware now exists and runs on real hardware, but it is a bring-up build: messages travel in clear over the air, anyone with a receiver can read them, nothing is signed, and anyone can claim to be anyone. The board says this on boot and the dashboard says it on every screen. Everything below this line describes where the project is going. **Nothing below is true of `v0.1.0-dev` unless this warning says it is.**
+
 > [!WARNING]
-> **This is an idea, not a release.** No firmware exists yet. Nothing here has been built, tested, or audited. Do not rely on it for anything that matters. This README is the design document, published early and in the open, because a privacy tool that gets designed in private is a privacy tool nobody should trust.
+> Nothing here has been audited. Do not rely on it for anything that matters. This README is the design document, published early and in the open, because a privacy tool that gets designed in private is a privacy tool nobody should trust.
+
+### What actually works today
+
+| | Status |
+|---|---|
+| Wire protocol codec | Written, 95,157 host assertions passing under AddressSanitizer |
+| Mesh relay, flood suppression | Written, tested to 100 simulated nodes |
+| ESP32 firmware, ESP-NOW radio, beacons | Runs on hardware |
+| Board's own access point and dashboard | Runs on hardware, 42 KB gzipped |
+| Desktop flasher | Detects boards, writes firmware |
+| **Encryption, identity, verification** | **Not implemented** |
 
 ---
 

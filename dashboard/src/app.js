@@ -191,6 +191,11 @@ function msgHtml(m) {
 
 function banners() {
   const out = [];
+  /* First, always, and not dismissible. A person who flashed this after
+     reading the README could reasonably believe their messages are protected.
+     They are not, and the interface says so before anything else. */
+  if (S.me?.nocrypto) out.push(`<div class="banner warn">
+    <b>This build has no encryption.</b> Messages travel in clear over the air and anyone with a receiver can read them. Names are not signed, so anyone can claim to be anyone. Treat every conversation here as public.</div>`);
   if (S.down) out.push(`<div class="banner warn"><b>The board stopped answering.</b> Reconnecting.</div>`);
   if (S.net?.beta) out.push(`<div class="banner">
     <b>Home network mode, beta.</b> Your network runs on channel ${S.net.channel} and the mesh meets on channel ${S.net.meshChannel}, so this board can only listen to the mesh in short windows. Discovery and delivery are slower, and it will not relay for anyone else. Set your router to channel ${S.net.meshChannel}, or use the board's own access point.</div>`);

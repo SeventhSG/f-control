@@ -2,3 +2,7 @@
 node_modules/
 dashboard/build/
 firmware/test/host/build/
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/main/index.html.gz
